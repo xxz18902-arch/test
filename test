@@ -5371,41 +5371,57 @@ function Library:CreateAddonLoader(Window, Parent)
 
     AddonGroup:AddLabel("Registered Addons:", true);
 
-    local AddonContainer = AddonGroup:AddDependencyBox();
+    -- Status label
+    local StatusLabel = AddonGroup:AddLabel("Loading addons...", true);
+
+    -- Container for addon buttons
+    local AddonButtons = {};
 
     local function BuildAddonList()
-        -- Clear previous buttons
-        for _, child in pairs(AddonContainer.Container:GetChildren()) do
-            if child:IsA("TextButton") or child:IsA("Frame") then
-                child:Destroy();
+        -- Remove old buttons
+        for _, btn in pairs(AddonButtons) do
+            if btn and btn.Outer then
+                btn.Outer:Destroy();
             end
         end
+        table.clear(AddonButtons);
 
+        local addonCount = 0;
         for name, addon in pairs(self.AddonList) do
+            addonCount = addonCount + 1;
             local status = addon.Loaded and "[ON]" or "[OFF]";
-            local color = addon.Loaded and "#00ff00" or "#ff0000";
+            local displayText = status .. " " .. addon.Name .. " v" .. addon.Version;
 
-            local btn = AddonContainer:AddButton({
-                Text = status .. " " .. addon.Name .. " v" .. addon.Version,
+            local btn = AddonGroup:AddButton({
+                Text = displayText,
                 Func = function()
                     if addon.Loaded then
                         self:UnloadAddon(name);
                     else
                         self:LoadAddon(name, Window);
                     end
+                    -- Rebuild after toggle
+                    task.delay(0.1, BuildAddonList);
                 end
             });
 
-            btn:AddTooltip(addon.Description .. "\nAuthor: " .. addon.Author);
+            if btn and btn.AddTooltip then
+                btn:AddTooltip(addon.Description .. " | Author: " .. addon.Author);
+            end
+
+            table.insert(AddonButtons, btn);
         end
 
-        AddonContainer:Resize();
+        if addonCount == 0 then
+            StatusLabel:SetText("No addons registered.");
+        else
+            StatusLabel:SetText(addonCount .. " addon(s) available");
+        end
+
+        AddonGroup:Resize();
     end
 
     self.RefreshAddonList = BuildAddonList;
-
-    -- Initial build
-    task.delay(0.5, BuildAddonList);
 
     -- Add refresh button
     AddonGroup:AddButton({
@@ -5416,7 +5432,9 @@ function Library:CreateAddonLoader(Window, Parent)
         end
     });
 
-    -- Add load from URL button
+    AddonGroup:AddDivider();
+
+    -- Add load from URL input
     AddonGroup:AddInput("AddonURL", {
         Text = "Load from URL",
         Default = "",
@@ -5431,8 +5449,8 @@ function Library:CreateAddonLoader(Window, Parent)
                     end);
 
                     if success then
-                        self:Notify("Addon loaded from URL successfully!", 3);
-                        BuildAddonList();
+                        self:Notify("Script executed! Check for registered addons.", 3);
+                        task.delay(0.5, BuildAddonList);
                     else
                         self:Notify("Failed to load: " .. tostring(result), 5);
                     end
@@ -5440,6 +5458,9 @@ function Library:CreateAddonLoader(Window, Parent)
             end
         end
     });
+
+    -- Initial build after a short delay
+    task.delay(0.3, BuildAddonList);
 
     return AddonGroup;
 end
