@@ -1,0 +1,2095 @@
+--[[
+    bitchbot v2 - Enhanced Visuals
+    Made by samet, visuals enhanced with Juju patterns
+    
+    Key visual improvements:
+    - Drawing-based pixel perfect rendering
+    - Juju-inspired cyan accent (154, 213, 222)
+    - Smooth exponential tweens
+    - Custom cursor system
+    - Modern shadows and rounded corners
+    - Better spacing and typography
+]]
+
+if getgenv().Library and getgenv().Library.Unload then 
+    getgenv().Library:Unload()
+end
+
+local Library do
+    -- Services
+    local Workspace = game:GetService("Workspace")
+    local UserInputService = game:GetService("UserInputService")
+    local Players = game:GetService("Players")
+    local CoreGui = cloneref and cloneref(game:GetService("CoreGui")) or game:GetService("CoreGui")
+    local HttpService = game:GetService("HttpService")
+    local TweenService = game:GetService("TweenService")
+    local RunService = game:GetService("RunService")
+    local Lighting = game:GetService("Lighting")
+    
+    gethui = gethui or function() return CoreGui end
+
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = Workspace.CurrentCamera
+    local Mouse = LocalPlayer:GetMouse()
+
+    -- Juju-inspired Color Palette
+    local FromRGB = Color3.fromRGB
+    local FromHSV = Color3.fromHSV
+    
+    -- Juju's signature cyan/teal accent
+    local JUJU_ACCENT = FromRGB(154, 213, 222)
+    local JUJU_ACCENT_LIGHT = FromRGB(174, 233, 242)
+    local JUJU_ACCENT_DARK = FromRGB(134, 193, 202)
+    
+    -- Enhanced dark theme based on Juju
+    local Colors = {
+        Background = FromRGB(6, 6, 6),
+        Section = FromRGB(12, 12, 12),
+        Element = FromRGB(18, 18, 18),
+        Border = FromRGB(24, 25, 24),
+        BorderHighlight = FromRGB(51, 65, 70),
+        Accent = JUJU_ACCENT,
+        AccentLight = JUJU_ACCENT_LIGHT,
+        AccentDark = JUJU_ACCENT_DARK,
+        TextActive = FromRGB(197, 197, 197),
+        TextInactive = FromRGB(75, 72, 72),
+        TextDark = FromRGB(70, 85, 87),
+        Shadow = FromRGB(0, 0, 0),
+        Success = FromRGB(154, 213, 222),
+        Error = FromRGB(39, 60, 96),
+        Alert = FromRGB(30, 51, 61),
+        White = FromRGB(255, 255, 255),
+        Black = FromRGB(0, 0, 0)
+    }
+
+    local UDim2New = UDim2.new
+    local UDimNew = UDim.new
+    local Vector2New = Vector2.new
+
+    local MathClamp = math.clamp
+    local MathFloor = math.floor
+    local MathAbs = math.abs
+    local MathSin = math.sin
+    local MathCos = math.cos
+    local MathSqrt = math.sqrt
+    local MathPi = math.pi
+
+    local TableInsert = table.insert
+    local TableFind = table.find
+    local TableRemove = table.remove
+    local TableConcat = table.concat
+    local TableClone = table.clone
+
+    local StringFormat = string.format
+    local StringFind = string.find
+    local StringGSub = string.gsub
+    local StringLower = string.lower
+
+    local InstanceNew = Instance.new
+
+    -- Drawing API Setup (Juju-style)
+    local Drawing = Drawing or {}
+    local DrawingNew = Drawing.new
+    
+    -- Custom Drawing Proxy (Juju pattern)
+    local DrawingProxy = {}
+    DrawingProxy.__index = DrawingProxy
+    
+    function DrawingProxy.new(Class, Properties)
+        local Object = DrawingNew(Class)
+        
+        local Proxy = setmetatable({
+            Object = Object,
+            Position = UDim2New(0, 0, 0, 0),
+            Size = Class == "Text" and 12 or UDim2New(0, 0, 0, 0),
+            RealPosition = Vector2New(0, 0),
+            RealSize = Vector2New(0, 0),
+            Parent = nil,
+            Children = {},
+            Visible = false,
+            IsRendering = false
+        }, DrawingProxy)
+        
+        for Property, Value in pairs(Properties or {}) do
+            Proxy[Property] = Value
+        end
+        
+        return Proxy
+    end
+    
+    function DrawingProxy:__newindex(Property, Value)
+        if Property == "Position" then
+            self.Position = Value
+            self:UpdatePosition()
+        elseif Property == "Size" and type(Value) ~= "number" then
+            self.Size = Value
+            self:UpdateSize()
+        elseif Property == "Parent" then
+            if Value then
+                TableInsert(Value.Children, self)
+            end
+            self.Parent = Value
+            self:UpdatePosition()
+            self:UpdateVisibility()
+        elseif Property == "Visible" then
+            self.Visible = Value
+            self:UpdateVisibility()
+        else
+            self.Object[Property] = Value
+        end
+    end
+    
+    function DrawingProxy:__index(Property)
+        if Property == "Object" then return rawget(self, "Object") end
+        return self.Object[Property] or rawget(self, Property)
+    end
+    
+    function DrawingProxy:UpdatePosition()
+        local Parent = self.Parent
+        local RealPos = Parent and Parent.RealPosition or Vector2New(self.Position.X.Offset, self.Position.Y.Offset)
+        
+        if Parent then
+            RealPos = Vector2New(
+                Parent.RealPosition.X + Parent.RealSize.X * self.Position.X.Scale + self.Position.X.Offset,
+                Parent.RealPosition.Y + Parent.RealSize.Y * self.Position.Y.Scale + self.Position.Y.Offset
+            )
+        end
+        
+        self.RealPosition = RealPos
+        self.Object.Position = RealPos
+        
+        for _, Child in ipairs(self.Children) do
+            Child:UpdatePosition()
+        end
+    end
+    
+    function DrawingProxy:UpdateSize()
+        if type(self.Size) == "number" then return end
+        
+        local Parent = self.Parent
+        local RealSize = Parent and Parent.RealSize or Vector2New(self.Size.X.Offset, self.Size.Y.Offset)
+        
+        if Parent then
+            RealSize = Vector2New(
+                Parent.RealSize.X * self.Size.X.Scale + self.Size.X.Offset,
+                Parent.RealSize.Y * self.Size.Y.Scale + self.Size.Y.Offset
+            )
+        end
+        
+        self.RealSize = RealSize
+        self.Object.Size = RealSize
+        
+        for _, Child in ipairs(self.Children) do
+            Child:UpdatePosition()
+        end
+    end
+    
+    function DrawingProxy:UpdateVisibility()
+        local Parent = self.Parent
+        local ShouldRender = self.Visible and (not Parent or Parent.IsRendering)
+        
+        self.IsRendering = ShouldRender
+        self.Object.Visible = ShouldRender
+        
+        for _, Child in ipairs(self.Children) do
+            Child:UpdateVisibility()
+        end
+    end
+    
+    function DrawingProxy:Destroy()
+        for _, Child in ipairs(self.Children) do
+            Child:Destroy()
+        end
+        self.Object:Remove()
+    end
+
+    -- Juju-style Tween System
+    local ActiveTweens = {}
+    
+    local function Lerp(A, B, T)
+        return A + (B - A) * T
+    end
+    
+    local function EaseExponential(T)
+        return T == 1 and 1 or 1 - 2 ^ (-10 * T)
+    end
+    
+    local function EaseCircular(T)
+        return MathSqrt(1 - (T - 1) ^ 2)
+    end
+    
+    local function EaseQuad(T)
+        return T ^ 2
+    end
+    
+    local function TweenObject(Object, Properties, Duration, EasingStyle)
+        local StartTime = tick()
+        local StartValues = {}
+        
+        for Property, _ in pairs(Properties) do
+            StartValues[Property] = Object[Property]
+        end
+        
+        local Connection
+        Connection = RunService.RenderStepped:Connect(function()
+            local Elapsed = tick() - StartTime
+            local T = MathClamp(Elapsed / Duration, 0, 1)
+            
+            local EasedT = EasingStyle == "Exponential" and EaseExponential(T)
+                or EasingStyle == "Circular" and EaseCircular(T)
+                or EasingStyle == "Quad" and EaseQuad(T)
+                or T
+            
+            for Property, TargetValue in pairs(Properties) do
+                if typeof(TargetValue) == "Color3" then
+                    Object[Property] = StartValues[Property]:Lerp(TargetValue, EasedT)
+                elseif typeof(TargetValue) == "UDim2" then
+                    local Start = StartValues[Property]
+                    Object[Property] = UDim2New(
+                        Lerp(Start.X.Scale, TargetValue.X.Scale, EasedT),
+                        Lerp(Start.X.Offset, TargetValue.X.Offset, EasedT),
+                        Lerp(Start.Y.Scale, TargetValue.Y.Scale, EasedT),
+                        Lerp(Start.Y.Offset, TargetValue.Y.Offset, EasedT)
+                    )
+                elseif typeof(TargetValue) == "Vector2" then
+                    Object[Property] = StartValues[Property]:Lerp(TargetValue, EasedT)
+                else
+                    Object[Property] = Lerp(StartValues[Property], TargetValue, EasedT)
+                end
+            end
+            
+            if T >= 1 then
+                Connection:Disconnect()
+            end
+        end)
+        
+        TableInsert(ActiveTweens, Connection)
+        return Connection
+    end
+
+    -- Library Structure
+    Library = {
+        Theme = Colors,
+        MenuKeybind = Enum.KeyCode.RightControl,
+        Flags = {},
+        
+        Tween = {
+            Time = 0.25,
+            Style = "Exponential", -- Juju style
+        },
+        
+        Folders = {
+            Directory = "bitchbot",
+            Configs = "bitchbot/Configs",
+            Assets = "bitchbot/Assets",
+        },
+        
+        Pages = {},
+        Sections = {},
+        Connections = {},
+        Threads = {},
+        OpenFrames = {},
+        SetFlags = {},
+        
+        UnnamedConnections = 0,
+        UnnamedFlags = 0,
+        
+        Holder = nil,
+        NotifHolder = nil,
+        KeyList = nil,
+        Cursor = nil,
+        MainFrame = nil,
+        
+        -- Drawing-based UI elements
+        DrawingUI = {},
+    }
+
+    Library.__index = Library
+    Library.Sections.__index = Library.Sections
+    Library.Pages.__index = Library.Pages
+
+    -- Custom Cursor (Juju style)
+    local function CreateCursor()
+        local Cursor = DrawingProxy.new("Image", {
+            Size = UDim2New(0, 24, 0, 24),
+            Color = Colors.Accent,
+            Rounding = 0,
+            Transparency = 1,
+            ZIndex = 1000,
+            Visible = true,
+            Data = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACHUExURaWlpdTV1cDBwbq6uv///+Li4q6ursPDw9vc3Nna2sTExLCwsNPT09bW1tXV1bGxsdLT083OzrKyss/Pz7Ozs8jIyLS1tcbHx7W1tcnJybm5ufDw8JKSkpmZmaqrq6ipqaWmpqanp4aGhpqamszMzMLCwuLh4Xx8fL29vfHw8Hl5eY+OjgAAAAqocEsAAAAtdFJOU///////////////////////////////////////////////////////////AKXvC/0AAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuNBLfpoMAAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAAYAAAAAEAAABgAAAAAQAAAFBhaW50Lk5FVCA1LjEuNAADAACQBwAEAAAAMDIzMAGgAwABAAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEwMAAAAADX5rshveZftAAAALhJREFUOE/V0scWgjAQhWHUK2JX7L33vP/zmcilJRNd+6+Yme+w4BCoH2kQVKocpDSoAfWQo5sGDQCRVxCg6RMatAxA1ObGKgPoyCIHHlEA6EqiCNDrc1uoBDBwRRlgGHOfZQGMxjyk2QCTKS/MAZjNeUpyARY8JQmgLCSAJY8mCax4+5SD9WYbx+Fufyh/8AwcubBLwYmzkwbmjzr7XmDABbjeOLppcMfjyUlIA/VKHuUM+NofAKXelaSKsWMM5jMAAAAASUVORK5CYII="
+        })
+        
+        RunService.RenderStepped:Connect(function()
+            local MousePos = UserInputService:GetMouseLocation()
+            Cursor.Position = UDim2New(0, MousePos.X, 0, MousePos.Y)
+        end)
+        
+        UserInputService.MouseIconEnabled = false
+        
+        return Cursor
+    end
+
+    -- Pixel Image Data (1x1 white pixel for rectangles)
+    local PixelData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsIAAA7CARUoSoAAAAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuMvu8A7YAAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAA8nYBAOgDAADydgEA6AMAAFBhaW50Lk5FVCA1LjEuMgADAACQBwAEAAAAMDIzMAGgAwABAAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEwMAAAAACOO8FX0xe8TgAAAAxJREFUGFdj+P//PwAF/gL+pzWBhAAAAABJRU5ErkJggg=="
+
+    -- Enhanced Notification System (Juju style)
+    function Library:Notification(Text, Duration, Color)
+        Color = Color or Colors.Accent
+        
+        local NotifGroup = DrawingProxy.new("Image", {
+            Position = UDim2New(0, Camera.ViewportSize.X - 250, 0, 100),
+            Size = UDim2New(0, 200, 0, 60),
+            Color = Colors.Background,
+            Rounding = 4,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 100,
+            Visible = true
+        })
+        
+        local Shadow = DrawingProxy.new("Image", {
+            Parent = NotifGroup,
+            Position = UDim2New(0, -3, 0, -2),
+            Size = UDim2New(1, 6, 1, 4),
+            Color = Colors.Shadow,
+            Rounding = 7,
+            Transparency = 0,
+            Data = "iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAQAAABpN6lAAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAHdElNRQfiAQkTIxqKm+UhAAACvElEQVR42u2dzY7aMBhFjxPHEzJQBolRq77/27XSwBCSkD/PwinS7LpBVwrfeYLjI4Ozuy6Cw+HIyHBkOMCxTiIQmYnMzEQi0S9Hz/EUePIlxDpJB58YGRiZmJlTgIKCQMkLYYmwTtLhe2509AwM6QbkFJRUbKnYEChWHGCgp6WhpoF0AzI8gYodB/bs2BDI1aYPYqKn5cIZR7oPkyejoGTLgZ+888aOEq82fRAjHRdOlEBkZGTwODwvVOx55zdH9rxSqE0fxMCVMxXQ0dHS4TwZOYENO9448osDW4La9EH01GyAhhOfBHKy9Ar4JcGeA0d2Kw5QAu3yT+fJcB7IyJdn8JUtO36sOAB0vFISKNJz7+9fgelTKBAIlGrThxEI3z743Fpf/P/GAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0nfpsi7enp1VIPI53uPriaVmfT9ORAT8eVmhJWvDZ3oea6TK5OzOkGzIz3Lc4N0K04QM0HZy609IzMRM98nyI9UQHt6ic3/3JaEkzMnsjIjYYzJdA8xejqH8403BjTDRjoqHFAx+lJZnc/qOkYmP3yD9AAkY7PJxpe7hnTT2BiAGZG2ieb3p6ILj75+LqL4O7Dq245/HoDpAjx32cQ8QtpRORenSWX2AAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4xOdTWsmQAAAAASUVORK5CYII=",
+            ZIndex = 99
+        })
+        
+        local Icon = DrawingProxy.new("Square", {
+            Parent = NotifGroup,
+            Position = UDim2New(0, 8, 0, 8),
+            Size = UDim2New(0, 12, 0, 12),
+            Color = Color,
+            Filled = true,
+            Transparency = 0,
+            ZIndex = 101
+        })
+        
+        local NotifText = DrawingProxy.new("Text", {
+            Parent = NotifGroup,
+            Position = UDim2New(0, 28, 0, 8),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Text,
+            Font = 1,
+            Transparency = 0,
+            ZIndex = 101
+        })
+        
+        -- Animate in
+        TweenObject(NotifGroup.Object, {Transparency = 0.9}, 0.15, "Circular")
+        TweenObject(Shadow.Object, {Transparency = 0.16}, 0.15, "Circular")
+        TweenObject(Icon.Object, {Transparency = 1}, 0.15, "Circular")
+        TweenObject(NotifText.Object, {Transparency = 1}, 0.15, "Circular")
+        
+        -- Auto dismiss
+        task.delay(Duration or 3, function()
+            TweenObject(NotifGroup.Object, {Transparency = 0}, 0.12, "Circular")
+            TweenObject(Shadow.Object, {Transparency = 0}, 0.12, "Circular")
+            TweenObject(Icon.Object, {Transparency = 0}, 0.12, "Circular")
+            TweenObject(NotifText.Object, {Transparency = 0}, 0.12, "Circular")
+            
+            task.wait(0.15)
+            NotifGroup:Destroy()
+        end)
+    end
+
+    -- Enhanced Window with Drawing-based UI
+    function Library:Window(Data)
+        Data = Data or {}
+        
+        local Window = {
+            Name = Data.Name or Data.name or "bitchbot",
+            FadeSpeed = Data.FadeSpeed or Data.fadespeed or 0.25,
+            Size = Data.Size or Data.size or UDim2New(0, 700, 0, 500),
+            Pages = {},
+            IsOpen = false
+        }
+        
+        -- Create Drawing-based main frame
+        local MainFrame = DrawingProxy.new("Image", {
+            Position = UDim2New(0, Camera.ViewportSize.X / 2 - 350, 0, Camera.ViewportSize.Y / 2 - 250),
+            Size = Window.Size,
+            Color = Colors.Background,
+            Rounding = 4,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 50,
+            Visible = true
+        })
+        
+        -- Shadow
+        local Shadow = DrawingProxy.new("Image", {
+            Parent = MainFrame,
+            Position = UDim2New(0, -3, 0, -2),
+            Size = UDim2New(1, 6, 1, 4),
+            Color = Colors.Shadow,
+            Rounding = 7,
+            Transparency = 0,
+            Data = "iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAQAAABpN6lAAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAHdElNRQfiAQkTIxqKm+UhAAACvElEQVR42u2dzY7aMBhFjxPHEzJQBolRq77/27XSwBCSkD/PwinS7LpBVwrfeYLjI4Ozuy6Cw+HIyHBkOMCxTiIQmYnMzEQi0S9Hz/EUePIlxDpJB58YGRiZmJlTgIKCQMkLYYmwTtLhe2509AwM6QbkFJRUbKnYEChWHGCgp6WhpoF0AzI8gYodB/bs2BDI1aYPYqKn5cIZR7oPkyejoGTLgZ+888aOEq82fRAjHRdOlEBkZGTwODwvVOx55zdH9rxSqE0fxMCVMxXQ0dHS4TwZOYENO9448osDW4La9EH01GyAhhOfBHKy9Ar4JcGeA0d2Kw5QAu3yT+fJcB7IyJdn8JUtO36sOAB0vFISKNJz7+9fgelTKBAIlGrThxEI3z743Fpf/P/GAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0FUAuosQBqATUWQC2gxgKoBdRYALWAGgugFlBjAdQCaiyAWkCNBVALqLEAagE1FkAtoMYCqAXUWAC1gBoLoBZQYwHUAmosgFpAjQVQC6ixAGoBNRZALaDGAqgF1FgAtYAaC6AWUGMB1AJqLIBaQI0nfpsi7enp1VIPI53uPriaVmfT9ORAT8eVmhJWvDZ3oea6TK5OzOkGzIz3Lc4N0K04QM0HZy609IzMRM98nyI9UQHt6ic3/3JaEkzMnsjIjYYzJdA8xejqH8403BjTDRjoqHFAx+lJZnc/qOkYmP3yD9AAkY7PJxpe7hnTT2BiAGZG2ieb3p6ILj75+LqL4O7Dq245/HoDpAjx32cQ8QtpRORenSWX2AAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0IDQuMC4xOdTWsmQAAAAASUVORK5CYII=",
+            ZIndex = 49
+        })
+        
+        -- Inner section (darker)
+        local Inside = DrawingProxy.new("Image", {
+            Parent = MainFrame,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Section,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 51
+        })
+        
+        -- Left sidebar
+        local Sidebar = DrawingProxy.new("Image", {
+            Parent = Inside,
+            Position = UDim2New(0, 0, 0, 0),
+            Size = UDim2New(0, 100, 1, 0),
+            Color = Colors.Background,
+            Rounding = 0,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 52
+        })
+        
+        -- Sidebar divider
+        local SidebarDivider = DrawingProxy.new("Square", {
+            Parent = Inside,
+            Position = UDim2New(0, 100, 0, 0),
+            Size = UDim2New(0, 1, 1, 0),
+            Color = Colors.Border,
+            Filled = true,
+            Transparency = 1,
+            ZIndex = 53
+        })
+        
+        -- Right content area
+        local ContentArea = DrawingProxy.new("Image", {
+            Parent = Inside,
+            Position = UDim2New(0, 101, 0, 0),
+            Size = UDim2New(1, -101, 1, 0),
+            Color = Colors.Background,
+            Rounding = 0,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 52
+        })
+        
+        -- Logo area
+        local LogoBg = DrawingProxy.new("Image", {
+            Parent = Sidebar,
+            Position = UDim2New(0, 10, 0, 10),
+            Size = UDim2New(0, 80, 0, 30),
+            Color = Colors.Accent,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 53
+        })
+        
+        local LogoText = DrawingProxy.new("Text", {
+            Parent = LogoBg,
+            Position = UDim2New(0, 5, 0, 5),
+            Size = 14,
+            Color = Colors.Black,
+            Text = Window.Name:upper(),
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 54
+        })
+        
+        -- Tab line indicator (Juju style)
+        local TabLine = DrawingProxy.new("Square", {
+            Parent = Sidebar,
+            Position = UDim2New(0, 0, 0, 50),
+            Size = UDim2New(0, 2, 0, 15),
+            Color = Colors.Accent,
+            Filled = true,
+            Transparency = 0.5,
+            ZIndex = 54
+        })
+        
+        Window.MainFrame = MainFrame
+        Window.Shadow = Shadow
+        Window.Inside = Inside
+        Window.Sidebar = Sidebar
+        Window.ContentArea = ContentArea
+        Window.TabLine = TabLine
+        Window.Tabs = {}
+        Window.CurrentTab = nil
+        
+        -- Drag system
+        local Dragging = false
+        local DragStart = nil
+        local StartPos = nil
+        
+        local function UpdateDrag(Input)
+            local Delta = Input.Position - DragStart
+            MainFrame.Position = UDim2New(0, StartPos.X + Delta.X, 0, StartPos.Y + Delta.Y)
+        end
+        
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                local MousePos = UserInputService:GetMouseLocation()
+                local FramePos = MainFrame.RealPosition
+                local FrameSize = MainFrame.RealSize
+                
+                if MousePos.X >= FramePos.X and MousePos.X <= FramePos.X + FrameSize.X and
+                   MousePos.Y >= FramePos.Y and MousePos.Y <= FramePos.Y + 50 then
+                    Dragging = true
+                    DragStart = Input.Position
+                    StartPos = Vector2New(FramePos.X, FramePos.Y)
+                end
+            end
+        end)
+        
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
+                UpdateDrag(Input)
+            end
+        end)
+        
+        Library:Connect(UserInputService.InputEnded, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                Dragging = false
+            end
+        end)
+        
+        -- Toggle menu
+        function Window:SetOpen(Bool)
+            self.IsOpen = Bool
+            
+            if Bool then
+                MainFrame.Visible = true
+                TweenObject(MainFrame.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(Shadow.Object, {Transparency = 0.5}, self.FadeSpeed, "Exponential")
+                TweenObject(Inside.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(Sidebar.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(ContentArea.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(SidebarDivider.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(LogoBg.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(LogoText.Object, {Transparency = 1}, self.FadeSpeed, "Exponential")
+                TweenObject(TabLine.Object, {Transparency = 0.5}, self.FadeSpeed, "Exponential")
+                
+                -- Show cursor
+                if not Library.Cursor then
+                    Library.Cursor = CreateCursor()
+                end
+                Library.Cursor.Visible = true
+                UserInputService.MouseIconEnabled = false
+            else
+                TweenObject(MainFrame.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(Shadow.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(Inside.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(Sidebar.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(ContentArea.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(SidebarDivider.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(LogoBg.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(LogoText.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                TweenObject(TabLine.Object, {Transparency = 0}, self.FadeSpeed, "Exponential")
+                
+                task.delay(self.FadeSpeed, function()
+                    MainFrame.Visible = false
+                end)
+                
+                if Library.Cursor then
+                    Library.Cursor.Visible = false
+                end
+                UserInputService.MouseIconEnabled = true
+            end
+        end
+        
+        function Window:SetText(Text)
+            LogoText.Text = tostring(Text):upper()
+        end
+        
+        -- Menu toggle key
+        Library:Connect(UserInputService.InputBegan, function(Input, GPE)
+            if GPE then return end
+            if Input.KeyCode == Library.MenuKeybind then
+                Window:SetOpen(not Window.IsOpen)
+            end
+        end)
+        
+        -- Start open
+        Window:SetOpen(true)
+        Library.MainFrame = MainFrame
+        
+        return setmetatable(Window, self)
+    end
+
+    -- Enhanced Page
+    function Library:Page(Data)
+        Data = Data or {}
+        
+        local Page = {
+            Window = self,
+            Name = Data.Name or Data.name or "Page",
+            Columns = Data.Columns or Data.columns or 2,
+            Active = false,
+            Sections = {},
+            TabButton = nil
+        }
+        
+        local TabIndex = #self.Tabs + 1
+        local TabY = 50 + (TabIndex - 1) * 25
+        
+        -- Tab button in sidebar
+        local TabButton = DrawingProxy.new("Text", {
+            Parent = self.Sidebar,
+            Position = UDim2New(0, 15, 0, TabY),
+            Size = 12,
+            Color = Colors.TextInactive,
+            Text = self.Name:upper(),
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 54
+        })
+        
+        -- Tab hover/click area
+        local TabArea = DrawingProxy.new("Square", {
+            Parent = self.Sidebar,
+            Position = UDim2New(0, 0, 0, TabY - 2),
+            Size = UDim2New(0, 100, 0, 20),
+            Color = Colors.Background,
+            Filled = true,
+            Transparency = 0,
+            ZIndex = 53
+        })
+        
+        Page.TabButton = TabButton
+        Page.TabArea = TabArea
+        Page.TabIndex = TabIndex
+        
+        -- Content frame for this page
+        local PageContent = DrawingProxy.new("Image", {
+            Parent = self.ContentArea,
+            Position = UDim2New(0, 10, 0, 10),
+            Size = UDim2New(1, -20, 1, -20),
+            Color = Colors.Background,
+            Rounding = 0,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 53,
+            Visible = false
+        })
+        
+        Page.Content = PageContent
+        
+        -- Column layout
+        Page.ColumnsData = {}
+        local ColumnWidth = (1 - 20 / self.ContentArea.RealSize.X) / Page.Columns
+        
+        for i = 1, Page.Columns do
+            local Column = DrawingProxy.new("Image", {
+                Parent = PageContent,
+                Position = UDim2New(0, (i - 1) * (self.ContentArea.RealSize.X - 20) / Page.Columns + (i - 1) * 10, 0, 0),
+                Size = UDim2New(0, (self.ContentArea.RealSize.X - 20) / Page.Columns - 10, 1, 0),
+                Color = Colors.Background,
+                Rounding = 0,
+                Transparency = 0,
+                Data = PixelData,
+                ZIndex = 54
+            })
+            TableInsert(Page.ColumnsData, Column)
+        end
+        
+        function Page:Turn(Bool)
+            self.Active = Bool
+            
+            if Bool then
+                -- Highlight tab
+                TweenObject(self.TabButton.Object, {Color = Colors.TextActive}, 0.2, "Exponential")
+                
+                -- Move tab line
+                TweenObject(self.Window.TabLine.Object, {
+                    Position = UDim2New(0, 0, 0, 50 + (self.TabIndex - 1) * 25 + 1)
+                }, 0.2, "Circular")
+                
+                -- Show content
+                self.Content.Visible = true
+                TweenObject(self.Content.Object, {Transparency = 1}, self.Window.FadeSpeed, "Exponential")
+                
+                -- Update current tab
+                self.Window.CurrentTab = self
+            else
+                TweenObject(self.TabButton.Object, {Color = Colors.TextInactive}, 0.2, "Exponential")
+                TweenObject(self.Content.Object, {Transparency = 0}, self.Window.FadeSpeed, "Exponential")
+                
+                task.delay(self.Window.FadeSpeed, function()
+                    self.Content.Visible = false
+                end)
+            end
+        end
+        
+        -- Click handling
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local AreaPos = TabArea.RealPosition
+                local AreaSize = TabArea.RealSize
+                
+                if MousePos.X >= AreaPos.X and MousePos.X <= AreaPos.X + AreaSize.X and
+                   MousePos.Y >= AreaPos.Y and MousePos.Y <= AreaPos.Y + AreaSize.Y then
+                    -- Deactivate other tabs
+                    for _, OtherPage in ipairs(self.Window.Tabs) do
+                        if OtherPage ~= self and OtherPage.Active then
+                            OtherPage:Turn(false)
+                        end
+                    end
+                    self:Turn(true)
+                end
+            end
+        end)
+        
+        -- Hover effect
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseMovement and self.Window.IsOpen and not self.Active then
+                local MousePos = UserInputService:GetMouseLocation()
+                local AreaPos = TabArea.RealPosition
+                local AreaSize = TabArea.RealSize
+                
+                if MousePos.X >= AreaPos.X and MousePos.X <= AreaPos.X + AreaSize.X and
+                   MousePos.Y >= AreaPos.Y and MousePos.Y <= AreaPos.Y + AreaSize.Y then
+                    TweenObject(self.TabButton.Object, {Color = Colors.BorderHighlight}, 0.17, "Circular")
+                else
+                    TweenObject(self.TabButton.Object, {Color = Colors.TextInactive}, 0.17, "Circular")
+                end
+            end
+        end)
+        
+        TableInsert(self.Tabs, Page)
+        
+        -- First page active by default
+        if #self.Tabs == 1 then
+            Page:Turn(true)
+        end
+        
+        return setmetatable(Page, Library.Pages)
+    end
+
+    -- Enhanced Section
+    function Library.Pages:Section(Data)
+        Data = Data or {}
+        
+        local Section = {
+            Window = self.Window,
+            Page = self,
+            Name = Data.Name or Data.name or "Section",
+            Side = Data.Side or Data.side or 1,
+            Elements = {}
+        }
+        
+        local Column = self.ColumnsData[Section.Side]
+        
+        -- Calculate Y position based on existing sections
+        local SectionY = 0
+        for _, ExistingSection in ipairs(self.Sections or {}) do
+            if ExistingSection.Side == Section.Side then
+                SectionY = SectionY + ExistingSection.Height + 15
+            end
+        end
+        
+        -- Section container
+        local SectionBorder = DrawingProxy.new("Image", {
+            Parent = Column,
+            Position = UDim2New(0, 0, 0, SectionY),
+            Size = UDim2New(1, 0, 0, 30),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 55
+        })
+        
+        local SectionInside = DrawingProxy.new("Image", {
+            Parent = SectionBorder,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Section,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 56
+        })
+        
+        -- Section label line (Juju style)
+        local SectionLine = DrawingProxy.new("Square", {
+            Parent = SectionInside,
+            Position = UDim2New(0, 1, 0, 0),
+            Size = UDim2New(0, 9, 0, 1),
+            Color = Colors.Accent,
+            Filled = true,
+            Transparency = 0.5,
+            ZIndex = 57
+        })
+        
+        local SectionLabel = DrawingProxy.new("Text", {
+            Parent = SectionInside,
+            Position = UDim2New(0, 15, 0, -8),
+            Size = 12,
+            Color = Colors.Accent,
+            Text = Section.Name,
+            Font = 1,
+            Transparency = 0.5,
+            ZIndex = 57
+        })
+        
+        -- Content holder
+        local ContentHolder = DrawingProxy.new("Image", {
+            Parent = SectionInside,
+            Position = UDim2New(0, 10, 0, 15),
+            Size = UDim2New(1, -20, 1, -25),
+            Color = Colors.Section,
+            Rounding = 0,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 56
+        })
+        
+        Section.Border = SectionBorder
+        Section.Inside = SectionInside
+        Section.Label = SectionLabel
+        Section.Line = SectionLine
+        Section.Content = ContentHolder
+        Section.Height = 30
+        Section.CurrentY = 0
+        
+        self.Sections = self.Sections or {}
+        TableInsert(self.Sections, Section)
+        
+        return setmetatable(Section, Library.Sections)
+    end
+
+    -- Enhanced Toggle
+    function Library.Sections:Toggle(Data)
+        Data = Data or {}
+        
+        local Toggle = {
+            Section = self,
+            Name = Data.Name or Data.name or "Toggle",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Default = Data.Default or Data.default or false,
+            Callback = Data.Callback or Data.callback or function() end,
+            Value = false
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Toggle container
+        local ToggleArea = DrawingProxy.new("Square", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = UDim2New(1, 0, 0, 20),
+            Color = Colors.Section,
+            Filled = true,
+            Transparency = 0,
+            ZIndex = 58
+        })
+        
+        -- Toggle box
+        local ToggleBox = DrawingProxy.new("Image", {
+            Parent = ToggleArea,
+            Position = UDim2New(0, 0, 0, 2),
+            Size = UDim2New(0, 12, 0, 12),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local ToggleBoxInside = DrawingProxy.new("Image", {
+            Parent = ToggleBox,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Element,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        -- Checkmark (hidden by default)
+        local Checkmark = DrawingProxy.new("Image", {
+            Parent = ToggleBoxInside,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Accent,
+            Rounding = 0,
+            Transparency = 0,
+            Data = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAYdEVYdFNvZnR3YXJlAFBhaW50Lk5FVCA1LjEuMvu8A7YAAAC2ZVhJZklJKgAIAAAABQAaAQUAAQAAAEoAAAAbAQUAAQAAAFIAAAAoAQMAAQAAAAIAAAAxAQIAEAAAAFoAAABphwQAAQAAAGoAAAAAAAAAYAAAAAEAAABgAAAAAQAAAFBhaW50Lk5FVCA1LjEuMgADAACQBwAEAAAAMDIzMAGgAwABAAAAAQAAAAWgBAABAAAAlAAAAAAAAAACAAEAAgAEAAAAUjk4AAIABwAEAAAAMDEwMAAAAADp1fY4ytpsegAAAEFJREFUKFOFj0EOACEIxMD//3ncTsSDYbUXDFMhpKS4MVbt4Kf+BI/Nj07YIesRPIpm1QoBIf1qQqgVls4QHmdGTFexGgt5dAJMAAAAAElFTkSuQmCC",
+            ZIndex = 61
+        })
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = ToggleArea,
+            Position = UDim2New(0, 20, 0, 2),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Toggle.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 59
+        })
+        
+        function Toggle:Set(Bool)
+            self.Value = Bool
+            Library.Flags[self.Flag] = Bool
+            
+            if Bool then
+                TweenObject(ToggleBoxInside.Object, {Color = Colors.Accent}, 0.15, "Circular")
+                TweenObject(Checkmark.Object, {Transparency = 1}, 0.15, "Circular")
+                TweenObject(Label.Object, {Color = Colors.AccentLight}, 0.15, "Circular")
+            else
+                TweenObject(ToggleBoxInside.Object, {Color = Colors.Element}, 0.15, "Circular")
+                TweenObject(Checkmark.Object, {Transparency = 0}, 0.15, "Circular")
+                TweenObject(Label.Object, {Color = Colors.TextActive}, 0.15, "Circular")
+            end
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, Bool)
+            end
+        end
+        
+        function Toggle:Get()
+            return self.Value
+        end
+        
+        -- Click handling
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BoxPos = ToggleBox.RealPosition
+                local BoxSize = ToggleBox.RealSize
+                
+                if MousePos.X >= BoxPos.X and MousePos.X <= BoxPos.X + BoxSize.X and
+                   MousePos.Y >= BoxPos.Y and MousePos.Y <= BoxPos.Y + BoxSize.Y then
+                    Toggle:Set(not Toggle.Value)
+                end
+            end
+        end)
+        
+        -- Hover effect
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseMovement and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BoxPos = ToggleBox.RealPosition
+                local BoxSize = ToggleBox.RealSize
+                
+                if MousePos.X >= BoxPos.X and MousePos.X <= BoxPos.X + BoxSize.X and
+                   MousePos.Y >= BoxPos.Y and MousePos.Y <= BoxPos.Y + BoxSize.Y then
+                    TweenObject(ToggleBox.Object, {Color = Colors.BorderHighlight}, 0.17, "Circular")
+                else
+                    TweenObject(ToggleBox.Object, {Color = Colors.Border}, 0.17, "Circular")
+                end
+            end
+        end)
+        
+        Toggle:Set(Toggle.Default)
+        self.CurrentY = self.CurrentY + 25
+        self.Height = self.Height + 25
+        
+        Library.SetFlags[Toggle.Flag] = function(Value)
+            Toggle:Set(Value)
+        end
+        
+        return Toggle
+    end
+
+    -- Enhanced Slider
+    function Library.Sections:Slider(Data)
+        Data = Data or {}
+        
+        local Slider = {
+            Section = self,
+            Name = Data.Name or Data.name or "Slider",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Default = Data.Default or Data.default or 0,
+            Min = Data.Min or Data.min or 0,
+            Max = Data.Max or Data.max or 100,
+            Decimals = Data.Decimals or Data.decimals or 1,
+            Suffix = Data.Suffix or Data.suffix or "",
+            Callback = Data.Callback or Data.callback or function() end,
+            Value = 0,
+            Sliding = false
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Slider.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 58
+        })
+        
+        -- Value display
+        local ValueText = DrawingProxy.new("Text", {
+            Parent = self.Content,
+            Position = UDim2New(1, -50, 0, Y),
+            Size = 12,
+            Color = Colors.Accent,
+            Text = tostring(Slider.Default) .. Slider.Suffix,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 58
+        })
+        
+        -- Slider track
+        local Track = DrawingProxy.new("Image", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y + 18),
+            Size = UDim2New(1, 0, 0, 8),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local TrackInside = DrawingProxy.new("Image", {
+            Parent = Track,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Element,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        -- Fill
+        local Fill = DrawingProxy.new("Image", {
+            Parent = TrackInside,
+            Position = UDim2New(0, 0, 0, 0),
+            Size = UDim2New(0, 0, 1, 0),
+            Color = Colors.Accent,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 61
+        })
+        
+        -- Dragger
+        local Dragger = DrawingProxy.new("Image", {
+            Parent = Track,
+            Position = UDim2New(0, -4, 0, -2),
+            Size = UDim2New(0, 10, 0, 12),
+            Color = Colors.AccentLight,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 62
+        })
+        
+        function Slider:Set(Value)
+            self.Value = MathClamp(Library:Round(Value, self.Decimals), self.Min, self.Max)
+            Library.Flags[self.Flag] = self.Value
+            
+            local Percent = (self.Value - self.Min) / (self.Max - self.Min)
+            
+            TweenObject(Fill.Object, {Size = UDim2New(Percent, 0, 1, 0)}, 0.1, "Circular")
+            TweenObject(Dragger.Object, {Position = UDim2New(Percent, -4, 0, -2)}, 0.1, "Circular")
+            
+            ValueText.Text = tostring(self.Value) .. self.Suffix
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, self.Value)
+            end
+        end
+        
+        function Slider:Get()
+            return self.Value
+        end
+        
+        -- Input handling
+        local function UpdateSlider(Input)
+            local TrackPos = Track.RealPosition
+            local TrackSize = Track.RealSize
+            local RelativeX = MathClamp((Input.Position.X - TrackPos.X) / TrackSize.X, 0, 1)
+            local Value = self.Min + (self.Max - self.Min) * RelativeX
+            self:Set(Value)
+        end
+        
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local TrackPos = Track.RealPosition
+                local TrackSize = Track.RealSize
+                
+                if MousePos.X >= TrackPos.X - 5 and MousePos.X <= TrackPos.X + TrackSize.X + 5 and
+                   MousePos.Y >= TrackPos.Y - 5 and MousePos.Y <= TrackPos.Y + TrackSize.Y + 5 then
+                    self.Sliding = true
+                    UpdateSlider(Input)
+                end
+            end
+        end)
+        
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseMovement and self.Sliding then
+                UpdateSlider(Input)
+            end
+        end)
+        
+        Library:Connect(UserInputService.InputEnded, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                self.Sliding = false
+            end
+        end)
+        
+        Slider:Set(Slider.Default)
+        self.CurrentY = self.CurrentY + 35
+        self.Height = self.Height + 35
+        
+        Library.SetFlags[Slider.Flag] = function(Value)
+            Slider:Set(Value)
+        end
+        
+        return Slider
+    end
+
+    -- Enhanced Dropdown
+    function Library.Sections:Dropdown(Data)
+        Data = Data or {}
+        
+        local Dropdown = {
+            Section = self,
+            Name = Data.Name or Data.name or "Dropdown",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Items = Data.Items or Data.items or {"One", "Two", "Three"},
+            Default = Data.Default or Data.default or nil,
+            Callback = Data.Callback or Data.callback or function() end,
+            Multi = Data.Multi or Data.multi or false,
+            Value = Dropdown.Multi and {} or nil,
+            Options = {},
+            IsOpen = false
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Dropdown.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 58
+        })
+        
+        -- Dropdown button
+        local DropdownBtn = DrawingProxy.new("Image", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y + 18),
+            Size = UDim2New(1, 0, 0, 20),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local DropdownInside = DrawingProxy.new("Image", {
+            Parent = DropdownBtn,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Element,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        local DropdownText = DrawingProxy.new("Text", {
+            Parent = DropdownInside,
+            Position = UDim2New(0, 8, 0, 3),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = "--",
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 61
+        })
+        
+        -- Arrow
+        local Arrow = DrawingProxy.new("Text", {
+            Parent = DropdownInside,
+            Position = UDim2New(1, -15, 0, 2),
+            Size = 12,
+            Color = Colors.Accent,
+            Text = ">",
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 61
+        })
+        
+        -- Options container (separate from section)
+        local OptionsContainer = DrawingProxy.new("Image", {
+            Position = UDim2New(0, 0, 0, 0),
+            Size = UDim2New(0, 200, 0, 0),
+            Color = Colors.Section,
+            Rounding = 4,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 100,
+            Visible = false
+        })
+        
+        local OptionsBorder = DrawingProxy.new("Image", {
+            Parent = OptionsContainer,
+            Position = UDim2New(0, -1, 0, -1),
+            Size = UDim2New(1, 2, 1, 2),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 99
+        })
+        
+        function Dropdown:AddOption(OptionName)
+            local OptionY = (#self.Options * 20)
+            
+            local OptionBtn = DrawingProxy.new("Image", {
+                Parent = OptionsContainer,
+                Position = UDim2New(0, 5, 0, 5 + OptionY),
+                Size = UDim2New(1, -10, 0, 18),
+                Color = Colors.Element,
+                Rounding = 4,
+                Transparency = 1,
+                Data = PixelData,
+                ZIndex = 101
+            })
+            
+            local OptionText = DrawingProxy.new("Text", {
+                Parent = OptionBtn,
+                Position = UDim2New(0, 8, 0, 2),
+                Size = 12,
+                Color = Colors.TextActive,
+                Text = OptionName,
+                Font = 1,
+                Transparency = 1,
+                ZIndex = 102
+            })
+            
+            local OptionData = {
+                Name = OptionName,
+                Button = OptionBtn,
+                Text = OptionText,
+                Selected = false
+            }
+            
+            function OptionData:Select()
+                if Dropdown.Multi then
+                    self.Selected = not self.Selected
+                    
+                    if self.Selected then
+                        TweenObject(self.Button.Object, {Color = Colors.Accent}, 0.15, "Circular")
+                        TweenObject(self.Text.Object, {Color = Colors.Black}, 0.15, "Circular")
+                        TableInsert(Dropdown.Value, self.Name)
+                    else
+                        TweenObject(self.Button.Object, {Color = Colors.Element}, 0.15, "Circular")
+                        TweenObject(self.Text.Object, {Color = Colors.TextActive}, 0.15, "Circular")
+                        
+                        local Index = TableFind(Dropdown.Value, self.Name)
+                        if Index then
+                            TableRemove(Dropdown.Value, Index)
+                        end
+                    end
+                    
+                    DropdownText.Text = #Dropdown.Value == 0 and "--" or TableConcat(Dropdown.Value, ", ")
+                else
+                    -- Deselect all others
+                    for _, Opt in pairs(Dropdown.Options) do
+                        Opt.Selected = false
+                        TweenObject(Opt.Button.Object, {Color = Colors.Element}, 0.15, "Circular")
+                        TweenObject(Opt.Text.Object, {Color = Colors.TextActive}, 0.15, "Circular")
+                    end
+                    
+                    self.Selected = true
+                    TweenObject(self.Button.Object, {Color = Colors.Accent}, 0.15, "Circular")
+                    TweenObject(self.Text.Object, {Color = Colors.Black}, 0.15, "Circular")
+                    
+                    Dropdown.Value = self.Name
+                    DropdownText.Text = self.Name
+                    
+                    -- Close dropdown
+                    Dropdown:SetOpen(false)
+                end
+                
+                Library.Flags[Dropdown.Flag] = Dropdown.Value
+                if Dropdown.Callback then
+                    Library:SafeCall(Dropdown.Callback, Dropdown.Value)
+                end
+            end
+            
+            -- Click handling
+            Library:Connect(UserInputService.InputBegan, function(Input)
+                if Input.UserInputType == Enum.UserInputType.MouseButton1 and Dropdown.IsOpen then
+                    local MousePos = UserInputService:GetMouseLocation()
+                    local BtnPos = OptionBtn.RealPosition
+                    local BtnSize = OptionBtn.RealSize
+                    
+                    if MousePos.X >= BtnPos.X and MousePos.X <= BtnPos.X + BtnSize.X and
+                       MousePos.Y >= BtnPos.Y and MousePos.Y <= BtnPos.Y + BtnSize.Y then
+                        OptionData:Select()
+                    end
+                end
+            end)
+            
+            TableInsert(self.Options, OptionData)
+            
+            -- Update container size
+            OptionsContainer.Size = UDim2New(0, 200, 0, 10 + (#self.Options * 20))
+        end
+        
+        function Dropdown:SetOpen(Bool)
+            self.IsOpen = Bool
+            
+            if Bool then
+                -- Position container below dropdown
+                local BtnPos = DropdownBtn.RealPosition
+                OptionsContainer.Position = UDim2New(0, BtnPos.X, 0, BtnPos.Y + 25)
+                OptionsContainer.Visible = true
+                
+                TweenObject(OptionsContainer.Object, {Transparency = 1}, 0.15, "Circular")
+                TweenObject(OptionsBorder.Object, {Transparency = 1}, 0.15, "Circular")
+                TweenObject(Arrow.Object, {Rotation = 90}, 0.15, "Circular")
+            else
+                TweenObject(OptionsContainer.Object, {Transparency = 0}, 0.15, "Circular")
+                TweenObject(OptionsBorder.Object, {Transparency = 0}, 0.15, "Circular")
+                TweenObject(Arrow.Object, {Rotation = 0}, 0.15, "Circular")
+                
+                task.delay(0.15, function()
+                    OptionsContainer.Visible = false
+                end)
+            end
+        end
+        
+        -- Click handling for main button
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BtnPos = DropdownBtn.RealPosition
+                local BtnSize = DropdownBtn.RealSize
+                
+                if MousePos.X >= BtnPos.X and MousePos.X <= BtnPos.X + BtnSize.X and
+                   MousePos.Y >= BtnPos.Y and MousePos.Y <= BtnPos.Y + BtnSize.Y then
+                    Dropdown:SetOpen(not Dropdown.IsOpen)
+                elseif Dropdown.IsOpen then
+                    -- Close if clicking outside
+                    local ContPos = OptionsContainer.RealPosition
+                    local ContSize = OptionsContainer.RealSize
+                    
+                    if not (MousePos.X >= ContPos.X and MousePos.X <= ContPos.X + ContSize.X and
+                            MousePos.Y >= ContPos.Y and MousePos.Y <= ContPos.Y + ContSize.Y) then
+                        Dropdown:SetOpen(false)
+                    end
+                end
+            end
+        end)
+        
+        -- Add initial options
+        for _, Item in ipairs(Dropdown.Items) do
+            Dropdown:AddOption(Item)
+        end
+        
+        if Dropdown.Default then
+            if Dropdown.Multi then
+                for _, Val in ipairs(Dropdown.Default) do
+                    for _, Opt in ipairs(Dropdown.Options) do
+                        if Opt.Name == Val then
+                            Opt:Select()
+                        end
+                    end
+                end
+            else
+                for _, Opt in ipairs(Dropdown.Options) do
+                    if Opt.Name == Dropdown.Default then
+                        Opt:Select()
+                    end
+                end
+            end
+        end
+        
+        self.CurrentY = self.CurrentY + 45
+        self.Height = self.Height + 45
+        
+        Library.SetFlags[Dropdown.Flag] = function(Value)
+            Dropdown:Set(Value)
+        end
+        
+        return Dropdown
+    end
+
+    -- Enhanced Button
+    function Library.Sections:Button(Data)
+        Data = Data or {}
+        
+        local Button = {
+            Section = self,
+            Name = Data.Name or Data.name or "Button",
+            Callback = Data.Callback or Data.callback or function() end
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Button container
+        local BtnContainer = DrawingProxy.new("Image", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = UDim2New(1, 0, 0, 22),
+            Color = Colors.AccentDark,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local BtnInside = DrawingProxy.new("Image", {
+            Parent = BtnContainer,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Accent,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        local BtnText = DrawingProxy.new("Text", {
+            Parent = BtnInside,
+            Position = UDim2New(0.5, 0, 0, 4),
+            Size = 12,
+            Color = Colors.Black,
+            Text = Button.Name:upper(),
+            Font = 1,
+            Transparency = 1,
+            Center = true,
+            ZIndex = 61
+        })
+        
+        -- Click handling
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BtnPos = BtnContainer.RealPosition
+                local BtnSize = BtnContainer.RealSize
+                
+                if MousePos.X >= BtnPos.X and MousePos.X <= BtnPos.X + BtnSize.X and
+                   MousePos.Y >= BtnPos.Y and MousePos.Y <= BtnPos.Y + BtnSize.Y then
+                    -- Click animation
+                    TweenObject(BtnInside.Object, {Color = Colors.AccentLight}, 0.05, "Circular")
+                    task.delay(0.1, function()
+                        TweenObject(BtnInside.Object, {Color = Colors.Accent}, 0.1, "Circular")
+                    end)
+                    
+                    if Button.Callback then
+                        Library:SafeCall(Button.Callback)
+                    end
+                end
+            end
+        end)
+        
+        -- Hover effect
+        Library:Connect(UserInputService.InputChanged, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseMovement and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BtnPos = BtnContainer.RealPosition
+                local BtnSize = BtnContainer.RealSize
+                
+                if MousePos.X >= BtnPos.X and MousePos.X <= BtnPos.X + BtnSize.X and
+                   MousePos.Y >= BtnPos.Y and MousePos.Y <= BtnPos.Y + BtnSize.Y then
+                    TweenObject(BtnContainer.Object, {Color = Colors.AccentLight}, 0.17, "Circular")
+                else
+                    TweenObject(BtnContainer.Object, {Color = Colors.AccentDark}, 0.17, "Circular")
+                end
+            end
+        end)
+        
+        self.CurrentY = self.CurrentY + 27
+        self.Height = self.Height + 27
+        
+        return Button
+    end
+
+    -- Enhanced Textbox
+    function Library.Sections:Textbox(Data)
+        Data = Data or {}
+        
+        local Textbox = {
+            Section = self,
+            Name = Data.Name or Data.name or "Textbox",
+            Placeholder = Data.Placeholder or Data.placeholder or "...",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Default = Data.Default or Data.default or "",
+            Callback = Data.Callback or Data.callback or function() end,
+            Value = ""
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Textbox.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 58
+        })
+        
+        -- Textbox
+        local TextboxBg = DrawingProxy.new("Image", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y + 18),
+            Size = UDim2New(1, 0, 0, 20),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local TextboxInside = DrawingProxy.new("Image", {
+            Parent = TextboxBg,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Element,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        local TextboxText = DrawingProxy.new("Text", {
+            Parent = TextboxInside,
+            Position = UDim2New(0, 8, 0, 3),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Textbox.Default ~= "" and Textbox.Default or Textbox.Placeholder,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 61
+        })
+        
+        function Textbox:Set(Text)
+            self.Value = tostring(Text)
+            Library.Flags[self.Flag] = self.Value
+            TextboxText.Text = self.Value ~= "" and self.Value or self.Placeholder
+            TextboxText.Color = self.Value ~= "" and Colors.TextActive or Colors.TextInactive
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, self.Value)
+            end
+        end
+        
+        function Textbox:Get()
+            return self.Value
+        end
+        
+        -- Input handling (simplified - would need full text input handling)
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local BoxPos = TextboxBg.RealPosition
+                local BoxSize = TextboxBg.RealSize
+                
+                if MousePos.X >= BoxPos.X and MousePos.X <= BoxPos.X + BoxSize.X and
+                   MousePos.Y >= BoxPos.Y and MousePos.Y <= BoxPos.Y + BoxSize.Y then
+                    -- Focus effect
+                    TweenObject(TextboxBg.Object, {Color = Colors.Accent}, 0.15, "Circular")
+                    
+                    -- For full implementation, you'd need to capture keyboard input
+                    -- This is a simplified version
+                else
+                    TweenObject(TextboxBg.Object, {Color = Colors.Border}, 0.15, "Circular")
+                end
+            end
+        end)
+        
+        Textbox:Set(Textbox.Default)
+        self.CurrentY = self.CurrentY + 45
+        self.Height = self.Height + 45
+        
+        Library.SetFlags[Textbox.Flag] = function(Value)
+            Textbox:Set(Value)
+        end
+        
+        return Textbox
+    end
+
+    -- Enhanced Label
+    function Library.Sections:Label(Text, Alignment)
+        local Label = {
+            Section = self,
+            Name = Text or "Label",
+            Alignment = Alignment or "Left"
+        }
+        
+        local Y = self.CurrentY
+        
+        local LabelText = DrawingProxy.new("Text", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Label.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 58
+        })
+        
+        self.CurrentY = self.CurrentY + 18
+        self.Height = self.Height + 18
+        
+        return Label
+    end
+
+    -- Enhanced Keybind
+    function Library.Sections:Keybind(Data)
+        Data = Data or {}
+        
+        local Keybind = {
+            Section = self,
+            Name = Data.Name or Data.name or "Keybind",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Default = Data.Default or Data.default or nil,
+            Mode = Data.Mode or Data.mode or "Toggle",
+            Callback = Data.Callback or Data.callback or function() end,
+            Key = nil,
+            Toggled = false,
+            IsPicking = false
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Container
+        local Container = DrawingProxy.new("Square", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = UDim2New(1, 0, 0, 20),
+            Color = Colors.Section,
+            Filled = true,
+            Transparency = 0,
+            ZIndex = 58
+        })
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = Container,
+            Position = UDim2New(0, 0, 0, 2),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Keybind.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 59
+        })
+        
+        -- Key display
+        local KeyBg = DrawingProxy.new("Image", {
+            Parent = Container,
+            Position = UDim2New(1, -60, 0, 0),
+            Size = UDim2New(0, 50, 0, 18),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local KeyInside = DrawingProxy.new("Image", {
+            Parent = KeyBg,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colors.Element,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        local KeyText = DrawingProxy.new("Text", {
+            Parent = KeyInside,
+            Position = UDim2New(0.5, 0, 0, 2),
+            Size = 11,
+            Color = Colors.TextActive,
+            Text = "None",
+            Font = 1,
+            Center = true,
+            Transparency = 1,
+            ZIndex = 61
+        })
+        
+        function Keybind:Set(KeyData)
+            if type(KeyData) == "table" and KeyData.Key then
+                self.Key = KeyData.Key
+                self.Mode = KeyData.Mode or self.Mode
+                
+                local KeyName = tostring(self.Key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+                KeyText.Text = KeyName == "Backspace" and "None" or KeyName
+                
+                Library.Flags[self.Flag] = {
+                    Key = self.Key,
+                    Mode = self.Mode,
+                    Toggled = self.Toggled
+                }
+            elseif type(KeyData) == "string" then
+                self.Mode = KeyData
+                Library.Flags[self.Flag] = {
+                    Key = self.Key,
+                    Mode = self.Mode,
+                    Toggled = self.Toggled
+                }
+            end
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, self.Toggled)
+            end
+        end
+        
+        function Keybind:Press(Bool)
+            if self.Mode == "Toggle" then
+                self.Toggled = not self.Toggled
+            elseif self.Mode == "Hold" then
+                self.Toggled = Bool
+            elseif self.Mode == "Always" then
+                self.Toggled = true
+            end
+            
+            Library.Flags[self.Flag] = {
+                Key = self.Key,
+                Mode = self.Mode,
+                Toggled = self.Toggled
+            }
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, self.Toggled)
+            end
+        end
+        
+        -- Click to set
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local KeyPos = KeyBg.RealPosition
+                local KeySize = KeyBg.RealSize
+                
+                if MousePos.X >= KeyPos.X and MousePos.X <= KeyPos.X + KeySize.X and
+                   MousePos.Y >= KeyPos.Y and MousePos.Y <= KeyPos.Y + KeySize.Y then
+                    if not Keybind.IsPicking then
+                        Keybind.IsPicking = true
+                        KeyText.Text = "..."
+                        KeyText.Color = Colors.Accent
+                        
+                        local Connection
+                        Connection = UserInputService.InputBegan:Connect(function(Input2)
+                            if Input2.UserInputType == Enum.UserInputType.Keyboard then
+                                Keybind:Set({Key = Input2.KeyCode, Mode = Keybind.Mode})
+                            else
+                                Keybind:Set({Key = Input2.UserInputType, Mode = Keybind.Mode})
+                            end
+                            KeyText.Color = Colors.TextActive
+                            Keybind.IsPicking = false
+                            Connection:Disconnect()
+                        end)
+                    end
+                end
+            end
+            
+            -- Key press detection
+            if Keybind.Key and not Keybind.IsPicking then
+                local InputKey = Input.KeyCode ~= Enum.KeyCode.Unknown and Input.KeyCode or Input.UserInputType
+                if tostring(InputKey) == tostring(Keybind.Key) then
+                    if Keybind.Mode == "Toggle" then
+                        Keybind:Press()
+                    elseif Keybind.Mode == "Hold" then
+                        Keybind:Press(true)
+                    end
+                end
+            end
+        end)
+        
+        Library:Connect(UserInputService.InputEnded, function(Input)
+            if Keybind.Key and Keybind.Mode == "Hold" then
+                local InputKey = Input.KeyCode ~= Enum.KeyCode.Unknown and Input.KeyCode or Input.UserInputType
+                if tostring(InputKey) == tostring(Keybind.Key) then
+                    Keybind:Press(false)
+                end
+            end
+        end)
+        
+        if Keybind.Default then
+            Keybind:Set({Key = Keybind.Default, Mode = Keybind.Mode})
+        end
+        
+        self.CurrentY = self.CurrentY + 25
+        self.Height = self.Height + 25
+        
+        Library.SetFlags[Keybind.Flag] = function(Value)
+            Keybind:Set(Value)
+        end
+        
+        return Keybind
+    end
+
+    -- Enhanced Colorpicker
+    function Library.Sections:Colorpicker(Data)
+        Data = Data or {}
+        
+        local Colorpicker = {
+            Section = self,
+            Name = Data.Name or Data.name or "Colorpicker",
+            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Default = Data.Default or Data.default or FromRGB(255, 255, 255),
+            Alpha = Data.Alpha or Data.alpha or 0,
+            Callback = Data.Callback or Data.callback or function() end,
+            Color = FromRGB(255, 255, 255),
+            Hue = 0,
+            Saturation = 0,
+            Value = 0,
+            IsOpen = false
+        }
+        
+        local Y = self.CurrentY
+        
+        -- Container
+        local Container = DrawingProxy.new("Square", {
+            Parent = self.Content,
+            Position = UDim2New(0, 0, 0, Y),
+            Size = UDim2New(1, 0, 0, 20),
+            Color = Colors.Section,
+            Filled = true,
+            Transparency = 0,
+            ZIndex = 58
+        })
+        
+        -- Label
+        local Label = DrawingProxy.new("Text", {
+            Parent = Container,
+            Position = UDim2New(0, 0, 0, 2),
+            Size = 12,
+            Color = Colors.TextActive,
+            Text = Colorpicker.Name,
+            Font = 1,
+            Transparency = 1,
+            ZIndex = 59
+        })
+        
+        -- Color preview
+        local PreviewBg = DrawingProxy.new("Image", {
+            Parent = Container,
+            Position = UDim2New(1, -30, 0, 0),
+            Size = UDim2New(0, 25, 0, 15),
+            Color = Colors.Border,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 59
+        })
+        
+        local Preview = DrawingProxy.new("Image", {
+            Parent = PreviewBg,
+            Position = UDim2New(0, 1, 0, 1),
+            Size = UDim2New(1, -2, 1, -2),
+            Color = Colorpicker.Default,
+            Rounding = 4,
+            Transparency = 1,
+            Data = PixelData,
+            ZIndex = 60
+        })
+        
+        -- Picker window (simplified - would need full HSV picker)
+        local PickerWindow = DrawingProxy.new("Image", {
+            Position = UDim2New(0, 0, 0, 0),
+            Size = UDim2New(0, 200, 0, 150),
+            Color = Colors.Section,
+            Rounding = 4,
+            Transparency = 0,
+            Data = PixelData,
+            ZIndex = 100,
+            Visible = false
+        })
+        
+        function Colorpicker:Set(Color, Alpha)
+            self.Color = typeof(Color) == "Color3" and Color or FromRGB(Color[1], Color[2], Color[3])
+            self.Alpha = Alpha or self.Alpha
+            
+            Preview.Color = self.Color
+            
+            Library.Flags[self.Flag] = {
+                Color = self.Color,
+                Alpha = self.Alpha
+            }
+            
+            if self.Callback then
+                Library:SafeCall(self.Callback, self.Color, self.Alpha)
+            end
+        end
+        
+        function Colorpicker:Get()
+            return self.Color, self.Alpha
+        end
+        
+        -- Click to toggle
+        Library:Connect(UserInputService.InputBegan, function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and self.Window.IsOpen then
+                local MousePos = UserInputService:GetMouseLocation()
+                local PrevPos = PreviewBg.RealPosition
+                local PrevSize = PreviewBg.RealSize
+                
+                if MousePos.X >= PrevPos.X and MousePos.X <= PrevPos.X + PrevSize.X and
+                   MousePos.Y >= PrevPos.Y and MousePos.Y <= PrevPos.Y + PrevSize.Y then
+                    self.IsOpen = not self.IsOpen
+                    PickerWindow.Visible = self.IsOpen
+                    
+                    if self.IsOpen then
+                        PickerWindow.Position = UDim2New(0, PrevPos.X, 0, PrevPos.Y + 20)
+                        TweenObject(PickerWindow.Object, {Transparency = 1}, 0.15, "Circular")
+                    else
+                        TweenObject(PickerWindow.Object, {Transparency = 0}, 0.15, "Circular")
+                        task.delay(0.15, function()
+                            PickerWindow.Visible = false
+                        end)
+                    end
+                end
+            end
+        end)
+        
+        Colorpicker:Set(Colorpicker.Default, Colorpicker.Alpha)
+        self.CurrentY = self.CurrentY + 25
+        self.Height = self.Height + 25
+        
+        Library.SetFlags[Colorpicker.Flag] = function(Color, Alpha)
+            Colorpicker:Set(Color, Alpha)
+        end
+        
+        return Colorpicker
+    end
+
+    -- Utility functions
+    function Library:Unload()
+        for _, Connection in ipairs(self.Connections) do
+            if Connection.Connection then
+                Connection.Connection:Disconnect()
+            end
+        end
+        
+        for _, Thread in ipairs(self.Threads) do
+            coroutine.close(Thread)
+        end
+        
+        if self.Cursor then
+            self.Cursor:Destroy()
+        end
+        
+        UserInputService.MouseIconEnabled = true
+        Library = nil
+        getgenv().Library = nil
+    end
+
+    function Library:Connect(Event, Callback, Name)
+        Name = Name or StringFormat("Connection%s", self.UnnamedConnections + 1)
+        
+        local Connection = Event:Connect(Callback)
+        
+        TableInsert(self.Connections, {
+            Name = Name,
+            Connection = Connection
+        })
+        
+        return Connection
+    end
+
+    function Library:Thread(Function)
+        local NewThread = coroutine.create(Function)
+        coroutine.wrap(function()
+            coroutine.resume(NewThread)
+        end)()
+        TableInsert(self.Threads, NewThread)
+        return NewThread
+    end
+
+    function Library:SafeCall(Function, ...)
+        local Success, Result = pcall(Function, ...)
+        if not Success then
+            warn("Library Error:", Result)
+            return false
+        end
+        return Success, Result
+    end
+
+    function Library:NextFlag()
+        self.UnnamedFlags = self.UnnamedFlags + 1
+        return StringFormat("flag_%d", self.UnnamedFlags)
+    end
+
+    function Library:Round(Number, Float)
+        local Multiplier = 1 / (Float or 1)
+        return MathFloor(Number * Multiplier) / Multiplier
+    end
+
+    -- Config system
+    function Library:GetConfig()
+        local Config = {}
+        for Index, Value in pairs(self.Flags) do
+            Config[Index] = Value
+        end
+        return HttpService:JSONEncode(Config)
+    end
+
+    function Library:LoadConfig(ConfigString)
+        local Success, Decoded = pcall(HttpService.JSONDecode, HttpService, ConfigString)
+        if Success and Decoded then
+            for Index, Value in pairs(Decoded) do
+                local SetFunction = self.SetFlags[Index]
+                if SetFunction then
+                    SetFunction(Value)
+                end
+            end
+        end
+    end
+
+    function Library:SaveConfig(Name)
+        local Path = self.Folders.Configs .. "/" .. Name .. ".json"
+        writefile(Path, self:GetConfig())
+    end
+
+    function Library:DeleteConfig(Name)
+        local Path = self.Folders.Configs .. "/" .. Name .. ".json"
+        if isfile(Path) then
+            delfile(Path)
+        end
+    end
+
+    function Library:ListConfigs()
+        local Configs = {}
+        for _, File in ipairs(listfiles(self.Folders.Configs)) do
+            local Name = File:match("([^/\\]+)%.json$")
+            if Name then
+                TableInsert(Configs, Name)
+            end
+        end
+        return Configs
+    end
+end
+
+getgenv().Library = Library
+return Library
