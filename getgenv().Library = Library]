@@ -1,3 +1,6 @@
+-- // Linoria UI Library - Full Version with Addon System
+-- // Added: Addon System with StringValue support, dynamic loading, and management UI
+
 local InputService = cloneref(game:GetService('UserInputService'));
 local TextService = cloneref(game:GetService('TextService'));
 local CoreGui = cloneref(game:GetService('CoreGui'));
@@ -58,6 +61,7 @@ local Library = {
         Folder = nil;
         Initialized = false;
         AvailableAddons = {};
+        SelectedAddon = nil;
     };
     CurrentWindow = nil;
 };
@@ -498,8 +502,9 @@ Library:GiveSignal(ScreenGui.DescendantRemoving:Connect(function(Instance)
     end;
 end))
 
--- << Addon System Core Functions >> --
--- FIXED: Complete rewrite with proper error handling
+-- << ========================================== >>
+-- << ADDON SYSTEM - COMPLETE INTEGRATION >>
+-- << ========================================== >>
 
 function Library:SetWindow(Window)
     self.CurrentWindow = Window;
@@ -515,13 +520,14 @@ function Library.AddonSystem:Init(FolderName)
         self.Folder = Instance.new("Folder");
         self.Folder.Name = FolderName;
         self.Folder.Parent = workspace;
+        Library:Notify("Created Addons folder: " .. FolderName, 3);
         
-        -- Create example addon template
-        local ExampleAddon = Instance.new("ModuleScript")
-        ExampleAddon.Name = "Example_ESP"
-        ExampleAddon.Source = [[
+        -- Create example addon
+        local ExampleAddon = Instance.new("StringValue");
+        ExampleAddon.Name = "Example_ESP";
+        ExampleAddon.Value = [[
 local Addon = {
-    Name = "ESP Addon",
+    Name = "Example ESP",
     Version = "1.0",
     Author = "Template"
 }
@@ -539,31 +545,17 @@ function Addon:Load(Tab, Library, Window)
         end
     })
     
-    Left:AddToggle("ESP_Names", {
-        Text = "Name ESP", 
-        Default = false,
-        Callback = function(Value)
-            print("ESP Names:", Value)
-        end
-    })
-    
-    local Right = Tab:AddRightGroupbox("ESP Settings")
-    
+    local Right = Tab:AddRightGroupbox("Settings")
     Right:AddColorPicker("ESP_Color", {
         Text = "ESP Color",
-        Default = Color3.fromRGB(255, 0, 0),
-        Callback = function(Color)
-            print("Color:", Color)
-        end
+        Default = Color3.fromRGB(255, 0, 0)
     })
 end
 
 return Addon
-]]
-        ExampleAddon.Parent = self.Folder
-        
-        Library:Notify("Created Addons folder in Workspace", 3);
-        Library:Notify("Example addon 'Example_ESP' created!", 3);
+]];
+        ExampleAddon.Parent = self.Folder;
+        Library:Notify("Created example addon: Example_ESP", 3);
     end;
     
     self.AvailableAddons = {};
@@ -572,11 +564,15 @@ return Addon
     
     -- Listen for new addons
     self.Folder.ChildAdded:Connect(function(child)
-        if child:IsA("ModuleScript") then
-            task.wait(0.5);
+        if child:IsA("StringValue") then
+            task.wait(0.3);
             self:RefreshList();
+            Library:Notify("New addon detected: " .. child.Name, 2);
         end;
     end);
+    
+    -- Initial refresh
+    self:RefreshList();
 end;
 
 function Library.AddonSystem:RefreshList()
@@ -584,12 +580,12 @@ function Library.AddonSystem:RefreshList()
     self.AvailableAddons = {};
     
     for _, item in ipairs(self.Folder:GetChildren()) do
-        if item:IsA("ModuleScript") then
+        if item:IsA("StringValue") then
             table.insert(self.AvailableAddons, item.Name);
         end;
     end;
     
-    -- FIXED: Use correct option name with capital letter
+    -- Update dropdown if exists
     if Options and Options.AddonList then
         if #self.AvailableAddons == 0 then
             Options.AddonList:SetValues({"-- No Addons --"});
@@ -597,179 +593,180 @@ function Library.AddonSystem:RefreshList()
             Options.AddonList:SetValues(self.AvailableAddons);
         end;
     end;
+    
+    return self.AvailableAddons;
 end;
 
 function Library.AddonSystem:LoadByName(Name)
     if not self.Folder then
         Library:Notify("Addons folder not found!", 3);
-        return;
+        return false;
     end;
     
-    local module = self.Folder:FindFirstChild(Name);
-    if not module then
-        Library:Notify("Addon '" .. Name .. "' not found!", 3);
-        return;
+    local stringValue = self.Folder:FindFirstChild(Name);
+    if not stringValue or not stringValue:IsA("StringValue") then
+        Library:Notify("Addon '" .. tostring(Name) .. "' not found!", 3);
+        return false;
     end;
     
-    -- FIXED: Better error handling for loadstring
+    -- Try to load and execute
     local success, result = pcall(function()
-        local func = loadstring(module.Source);
-        if not func then
-            error("Failed to compile addon code");
-        end
+        local func = loadstring(stringValue.Value);
+        if not func then error("Failed to compile addon code") end
         return func();
     end);
     
     if not success then
-        Library:Notify("Error loading addon '" .. Name .. "': " .. tostring(result), 5);
-        return;
-    end
+        Library:Notify("Error loading '" .. Name .. "': " .. tostring(result), 5);
+        return false;
+    end;
     
+    -- Validate addon structure
     if type(result) ~= "table" then
-        Library:Notify("Invalid addon format: must return a table", 3);
-        return;
+        Library:Notify("Invalid addon: must return a table", 3);
+        return false;
     end;
     
     if not result.Name then
-        Library:Notify("Invalid addon format: missing 'Name' field", 3);
-        return;
+        Library:Notify("Invalid addon: missing 'Name' field", 3);
+        return false;
     end;
     
     if not result.Load or type(result.Load) ~= "function" then
-        Library:Notify("Invalid addon format: missing 'Load' function", 3);
-        return;
+        Library:Notify("Invalid addon: missing 'Load' function", 3);
+        return false;
     end;
     
     -- Check if already loaded
     for _, addon in ipairs(self.Addons) do
         if addon.Name == result.Name then
             Library:Notify("Addon '" .. result.Name .. "' already loaded!", 3);
-            return;
+            return false;
         end;
     end;
     
     local Window = Library.CurrentWindow;
     if not Window then
         Library:Notify("No window available!", 3);
-        return;
-    end
+        return false;
+    end;
     
-    -- Create new tab for this addon
+    -- Create tab and execute
     local Tab = Window:AddTab(result.Name);
     
-    -- Execute addon load function with error handling
-    local ok, err = pcall(function()
+    local execSuccess, execError = pcall(function()
         result:Load(Tab, Library, Window);
     end);
     
-    if not ok then
-        Library:Notify("Error in addon '" .. result.Name .. "': " .. tostring(err), 5);
-        -- Remove the tab if load failed
-        Tab:HideTab();
-        return;
-    end
+    if not execSuccess then
+        Library:Notify("Error in addon '" .. result.Name .. "': " .. tostring(execError), 5);
+        -- Try to hide the tab if it failed
+        pcall(function() Tab:HideTab(); end);
+        return false;
+    end;
     
     table.insert(self.Addons, result);
-    self:RefreshList();
     Library:Notify("Successfully loaded: " .. result.Name, 3);
+    return true;
 end;
 
--- << Addon Manager UI >> --
+function Library.AddonSystem:GetLoadedAddons()
+    local names = {};
+    for _, addon in ipairs(self.Addons) do
+        table.insert(names, addon.Name);
+    end;
+    return names;
+end;
+
+-- << ADDON MANAGER UI >>
 function Library:CreateAddonManager()
     local Window = self.CurrentWindow;
     if not Window then 
         Library:Notify("Cannot create addon manager: No window!", 3);
-        return;
+        return nil;
     end;
     
-    -- Initialize addon system first
+    -- Initialize addon system
     self.AddonSystem:Init();
     
     local Tab = Window:AddTab("Addons");
+    
+    -- Left side: Loader
     local Left = Tab:AddLeftGroupbox("Addon Loader");
     
-    -- FIXED: Correct option name
     Left:AddDropdown("AddonList", {
         Text = "Available Addons",
         Values = {"-- Loading --"},
         AllowNull = true,
         Callback = function(Value)
-            self.AddonSystem.SelectedAddon = Value;
+            if Value and Value ~= "--" and Value ~= "-- Loading --" and Value ~= "-- No Addons --" then
+                self.AddonSystem.SelectedAddon = Value;
+            end;
         end
     });
     
     Left:AddButton({
         Text = "Refresh List",
         Func = function()
-            self.AddonSystem:RefreshList();
-            Library:Notify("Addon list refreshed!", 2);
+            local addons = self.AddonSystem:RefreshList();
+            Library:Notify("Found " .. #addons .. " addon(s)", 2);
         end
     });
     
     Left:AddButton({
         Text = "Load Selected Addon",
+        DoubleClick = false,
         Func = function()
             local selected = Options.AddonList and Options.AddonList.Value;
-            if selected and selected ~= "-- No Addons --" and selected ~= "-- Loading --" then
+            if selected and selected ~= "--" and selected ~= "-- Loading --" and selected ~= "-- No Addons --" then
                 self.AddonSystem:LoadByName(selected);
             else
-                Library:Notify("No addon selected!", 2);
-            end;
+                Library:Notify("Please select an addon first!", 2);
+            end
         end
     });
     
     Left:AddButton({
         Text = "Load All Addons",
+        DoubleClick = true,
         Func = function()
             local addons = self.AddonSystem.AvailableAddons;
             local loaded = 0;
             for _, name in ipairs(addons) do
-                if name ~= "-- No Addons --" then
-                    self.AddonSystem:LoadByName(name);
+                if self.AddonSystem:LoadByName(name) then
                     loaded = loaded + 1;
                 end;
             end;
-            Library:Notify("Attempted to load " .. loaded .. " addons!", 3);
+            Library:Notify("Loaded " .. loaded .. "/" .. #addons .. " addon(s)", 3);
         end
     });
     
+    -- Right side: Management
     local Right = Tab:AddRightGroupbox("Loaded Addons");
     
-    Right:AddDropdown("LoadedAddonsList", {
-        Text = "Active Addons",
-        Values = {"-- None --"},
-        AllowNull = true
-    });
+    Right:AddLabel("Loaded: " .. #self.AddonSystem.Addons .. " addon(s)");
     
     Right:AddButton({
-        Text = "Update Loaded List",
+        Text = "Update Status",
         Func = function()
-            local loaded = {};
-            for _, addon in ipairs(self.AddonSystem.Addons) do
-                table.insert(loaded, addon.Name);
-            end;
-            if #loaded == 0 then
-                loaded = {"-- None --"};
-            end;
-            if Options.LoadedAddonsList then
-                Options.LoadedAddonsList:SetValues(loaded);
-            end;
+            local loaded = self.AddonSystem:GetLoadedAddons();
+            local count = #loaded;
+            Library:Notify("Active addons: " .. (count > 0 and table.concat(loaded, ", ") or "None"), 3);
         end
     });
     
-    Right:AddButton({
-        Text = "Reload All Addons",
-        Func = function()
-            -- Note: Addons can't be truly unloaded in Linoria, but we can reload them
-            Library:Notify("Addons are already active!", 2);
-        end
-    });
-    
-    -- Auto-refresh after a moment
-    task.delay(1, function()
+    -- Auto refresh list after a moment
+    task.delay(0.5, function()
         self.AddonSystem:RefreshList();
     end);
+    
+    return Tab;
 end;
+
+-- << ========================================== >>
+-- << REST OF LIBRARY (BaseAddons, BaseGroupbox, etc.) >>
+-- << ========================================== >>
+
 local BaseAddons = {};
 
 do
@@ -787,13 +784,7 @@ do
             Callback = Info.Callback or function(Color) end;
         };
 
-        function ColorPicker:SetHSVFromRGB(Color)
-            local H, S, V = Color3.toHSV(Color);
-            ColorPicker.Hue = H;
-            ColorPicker.Sat = S;
-            ColorPicker.Vib = V;
-        end;
-
+        function ColorPicker:SetHSVFromRGB(Color) local H, S, V = Color3.toHSV(Color); ColorPicker.Hue = H; ColorPicker.Sat = S; ColorPicker.Vib = V; end;
         ColorPicker:SetHSVFromRGB(ColorPicker.Value);
 
         local DisplayFrame = Library:Create('Frame', {
@@ -805,17 +796,10 @@ do
         });
 
         Library:AddToRegistry(DisplayFrame, { BorderColor3 = 'OutlineColor'; });
-
-        Library:OnHighlight(DisplayFrame, DisplayFrame,
-            { BorderColor3 = 'AccentColor' },
-            { BorderColor3 = 'OutlineColor' }
-        );
-
-        Library:Create('UICorner', {
-            CornerRadius = UDim.new(0, 3);
-            Parent = DisplayFrame;
-        });
-
+        Library:OnHighlight(DisplayFrame, DisplayFrame, { BorderColor3 = 'AccentColor' }, { BorderColor3 = 'OutlineColor' });
+        
+        Library:Create('UICorner', {CornerRadius = UDim.new(0, 3); Parent = DisplayFrame;});
+        
         local DisplayInner = Library:Create('Frame', {
             BackgroundColor3 = ColorPicker.Value;
             BorderSizePixel = 0;
@@ -825,11 +809,8 @@ do
             Parent = DisplayFrame;
         });
 
-        Library:Create('UICorner', {
-            CornerRadius = UDim.new(0, 2);
-            Parent = DisplayInner;
-        });
-
+        Library:Create('UICorner', {CornerRadius = UDim.new(0, 2); Parent = DisplayInner;});
+        
         local CheckerFrame = Library:Create('ImageLabel', {
             BorderSizePixel = 0;
             Size = UDim2.new(0, 27, 0, 13);
@@ -850,9 +831,7 @@ do
             Parent = ScreenGui,
         });
 
-        DisplayFrame:GetPropertyChangedSignal('AbsolutePosition'):Connect(function()
-            PickerFrameOuter.Position = UDim2.fromOffset(DisplayFrame.AbsolutePosition.X, DisplayFrame.AbsolutePosition.Y + 18);
-        end)
+        DisplayFrame:GetPropertyChangedSignal('AbsolutePosition'):Connect(function() PickerFrameOuter.Position = UDim2.fromOffset(DisplayFrame.AbsolutePosition.X, DisplayFrame.AbsolutePosition.Y + 18); end)
 
         local PickerFrameInner = Library:Create('Frame', {
             BackgroundColor3 = Library.BackgroundColor;
@@ -1333,6 +1312,7 @@ do
 
                         ColorPicker.Transparency = 1 - ((MouseX - MinX) / (MaxX - MinX));
                         ColorPicker:Display();
+
                         RenderStepped:Wait();
                     end;
 
@@ -4260,14 +4240,6 @@ function Library:CreateWindow(...)
         Fading = true;
         Toggled = (not Toggled);
         ModalElement.Modal = Toggled;
-        
-        if Library.ItemViewer and Library.ItemViewer.Enabled then
-            if Toggled then
-                Library:ShowItemViewer()
-            else
-                Library:HideItemViewer()
-            end
-        end
 
         if Toggled then
             Outer.Visible = true;
