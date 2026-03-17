@@ -52,11 +52,12 @@ local Library = {
     ScreenGui = ScreenGui;
     GlowInstances = {};
     
-    -- Addon System Integrated
+    -- << Addon System Integrated >>
     AddonSystem = {
         Addons = {};
         Folder = nil;
         Initialized = false;
+        AvailableAddons = {};
     };
     CurrentWindow = nil;
 };
@@ -497,44 +498,70 @@ Library:GiveSignal(ScreenGui.DescendantRemoving:Connect(function(Instance)
     end;
 end))
 
--- << Addon System Functions >> --
+-- << Addon System Core Functions >> --
+function Library:SetWindow(Window)
+    self.CurrentWindow = Window;
+end;
+
 function Library.AddonSystem:Init(FolderName)
     if self.Initialized then return end;
     FolderName = FolderName or "Addons";
+    self.FolderName = FolderName;
     
-    self.Folder = workspace:FindFirstChild(FolderName) or Instance.new("Folder");
-    if not self.Folder.Parent then
+    self.Folder = workspace:FindFirstChild(FolderName);
+    if not self.Folder then
+        self.Folder = Instance.new("Folder");
         self.Folder.Name = FolderName;
         self.Folder.Parent = workspace;
-        Library:Notify("Addons Folder created: " .. FolderName, 5);
-        Library:Notify("Add ModuleScripts (.lua) to load addons!", 5);
+        Library:Notify("Created Addons folder in Workspace", 3);
     end;
     
+    self.AvailableAddons = {};
+    self.Addons = {};
     self.Initialized = true;
-    self:ScanFolder();
     
     self.Folder.ChildAdded:Connect(function(child)
         if child:IsA("ModuleScript") then
             task.wait(0.5);
-            self:LoadAddon(child);
+            self:RefreshList();
         end;
     end);
 end;
 
-function Library.AddonSystem:ScanFolder()
+function Library.AddonSystem:RefreshList()
+    if not self.Folder then return end;
+    self.AvailableAddons = {};
+    
     for _, item in ipairs(self.Folder:GetChildren()) do
         if item:IsA("ModuleScript") then
-            self:LoadAddon(item);
+            table.insert(self.AvailableAddons, item.Name);
+        end;
+    end;
+    
+    if Options and Options.addon_list then
+        if #self.AvailableAddons == 0 then
+            Options.addon_list:SetValues({"--"});
+        else
+            Options.addon_list:SetValues(self.AvailableAddons);
         end;
     end;
 end;
 
-function Library.AddonSystem:LoadAddon(ModuleScript)
-    if not ModuleScript then return end;
+function Library.AddonSystem:LoadByName(Name)
+    if not self.Folder then
+        Library:Notify("Addons folder not found!", 3);
+        return;
+    end;
+    
+    local module = self.Folder:FindFirstChild(Name);
+    if not module then
+        Library:Notify("Addon '" .. Name .. "' not found!", 3);
+        return;
+    end;
     
     local success, result = pcall(function()
-        local func = loadstring(ModuleScript.Source);
-        if func then return func(); end;
+        local func = loadstring(module.Source);
+        return func and func();
     end);
     
     if success and type(result) == "table" and result.Name and result.Load then
@@ -545,127 +572,83 @@ function Library.AddonSystem:LoadAddon(ModuleScript)
             end;
         end;
         
-        table.insert(self.Addons, result);
-        self:CreateAddonTab(result);
-        Library:Notify("Loaded Addon: " .. result.Name, 3);
+        local Window = Library.CurrentWindow;
+        if Window then
+            local Tab = Window:AddTab(result.Name);
+            local ok, err = pcall(function()
+                result:Load(Tab, Library, Window);
+            end);
+            
+            if ok then
+                table.insert(self.Addons, result);
+                self:RefreshList();
+                Library:Notify("Loaded: " .. result.Name, 3);
+            else
+                Library:Notify("Error: " .. tostring(err), 3);
+            end;
+        end;
     else
-        if not success then
-            warn("[AddonSystem] Failed to load '" .. ModuleScript.Name .. "': " .. tostring(result));
-        end;
+        Library:Notify("Invalid addon format!", 3);
     end;
 end;
 
-function Library.AddonSystem:CreateAddonTab(AddonData)
-    local Window = Library.CurrentWindow;
-    if not Window then return; end;
+-- << Addon Manager UI (نفس Config System) >> --
+function Library:CreateAddonManager()
+    local Window = self.CurrentWindow;
+    if not Window then return end;
     
-    local Tab = Window:AddTab(AddonData.Name);
+    local Tab = Window:AddTab("Addons");
+    local Left = Tab:AddLeftGroupbox("Addon Loader");
     
-    local success, err = pcall(function()
-        AddonData:Load(Tab, Library, Window);
-    end);
+    Left:AddInput("addon_name", {
+        Text = "Addon name",
+        Placeholder = "my_addon.lua"
+    });
     
-    if not success then
-        warn("[AddonSystem] Error in '" .. AddonData.Name .. "': " .. tostring(err));
-        local ErrorBox = Tab:AddLeftGroupbox("Error");
-        ErrorBox:AddLabel("Failed to load addon:", true);
-        ErrorBox:AddLabel(tostring(err), true);
-    end;
-end;
-
-function Library:RegisterAddon(AddonData)
-    if not self.AddonSystem.Initialized then
-        self.AddonSystem:Init();
-    end;
+    Left:AddDropdown("addon_list", {
+        Text = "Addon list",
+        Values = {"--"},
+        AllowNull = true
+    });
     
-    if type(AddonData) ~= "table" or not AddonData.Name or not AddonData.Load then
-        warn("[AddonSystem] Invalid addon data!");
-        return;
-    end;
-    
-    table.insert(self.AddonSystem.Addons, AddonData);
-    self.AddonSystem:CreateAddonTab(AddonData);
-end;
-
-function Library.AddonSystem:ReloadAll()
-    for _, addon in ipairs(self.Addons) do
-        self:CreateAddonTab(addon);
-    end;
-    Library:Notify("Reloaded " .. #self.Addons .. " addon(s)!", 3);
-end;
-
-function Library:SetWindow(Window)
-    self.CurrentWindow = Window;
-end;
-
-function Library:CreateWindowWithAddons(Config)
-    local Window = self:CreateWindow(Config);
-    self:SetWindow(Window);
-    
-    local ManagerTab = Window:AddTab("Addons");
-    local ManagerGroup = ManagerTab:AddLeftGroupbox("Addon Manager");
-    
-    ManagerGroup:AddButton({
-        Text = "Refresh Addons",
+    Left:AddButton({
+        Text = "Load addon",
         Func = function()
-            self.AddonSystem:ScanFolder();
-        end
-    });
-    
-    ManagerGroup:AddButton({
-        Text = "Reload All",
-        Func = function()
-            self.AddonSystem:ReloadAll();
-        end
-    });
-    
-    ManagerGroup:AddInput("addon_folder", {
-        Text = "Folder Name",
-        Default = "Addons",
-        Finished = true,
-        Callback = function(Value)
-            self.AddonSystem.Folder = nil;
-            self.AddonSystem:Init(Value);
-        end
-    });
-    
-    local ListGroup = ManagerTab:AddRightGroupbox("Loaded Addons");
-    
-    local function UpdateList()
-        for _, child in ipairs(ListGroup.Container:GetChildren()) do
-            if not child:IsA("UIListLayout") then
-                child:Destroy();
+            local name = Options.addon_list.Value;
+            if name and name ~= "--" then
+                self.AddonSystem:LoadByName(name);
             end;
-        end;
-        
-        if #self.AddonSystem.Addons == 0 then
-            ListGroup:AddLabel("No addons loaded", true);
-        else
+        end
+    });
+    
+    Left:AddButton({
+        Text = "Refresh list",
+        Func = function()
+            self.AddonSystem:RefreshList();
+            Library:Notify("Addon list refreshed!", 2);
+        end
+    });
+    
+    local Right = Tab:AddRightGroupbox("Loaded Addons");
+    Right:AddDropdown("loaded_addons", {
+        Text = "Active addons",
+        Values = {"--"},
+        AllowNull = true
+    });
+    
+    Right:AddButton({
+        Text = "Reload all",
+        Func = function()
             for _, addon in ipairs(self.AddonSystem.Addons) do
-                local text = "• " .. addon.Name;
-                if addon.Version then text = text .. " v" .. addon.Version; end;
-                if addon.Author then text = text .. " (by " .. addon.Author .. ")"; end;
-                ListGroup:AddLabel(text);
+                local Tab = Window:AddTab(addon.Name);
+                pcall(function()
+                    addon:Load(Tab, Library, Window);
+                end);
             end;
-        end;
-        ListGroup:Resize();
-    end;
-    
-    local oldCreateTab = self.AddonSystem.CreateAddonTab;
-    self.AddonSystem.CreateAddonTab = function(...)
-        oldCreateTab(...);
-        task.delay(0.1, UpdateList);
-    end;
-    
-    UpdateList();
-    
-    task.delay(1, function()
-        self.AddonSystem:Init();
-    end);
-    
-    return Window;
+            Library:Notify("All addons reloaded!", 2);
+        end
+    });
 end;
--- << End Addon System >> --
 
 local BaseAddons = {};
 
@@ -4121,16 +4104,6 @@ function Library:CreateWindow(...)
             return Tab:AddTabbox({ Name = Name, Side = 2; });
         end;
 
-        -- >> NEW: Get methods for Addon System
-        function Tab:GetGroupbox(Name)
-            return self.Groupboxes[Name];
-        end;
-
-        function Tab:GetTabbox(Name)
-            return self.Tabboxes[Name];
-        end;
-        -- << END NEW
-
         TabButton.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                 Tab:ShowTab();
@@ -4144,12 +4117,6 @@ function Library:CreateWindow(...)
         Window.Tabs[Name] = Tab;
         return Tab;
     end;
-
-    -- >> NEW: Get method for Window
-    function Window:GetTab(Name)
-        return self.Tabs[Name];
-    end;
-    -- << END NEW
 
     local ModalElement = Library:Create('TextButton', {
         BackgroundTransparency = 1;
