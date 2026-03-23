@@ -1,6 +1,7 @@
 --!strict
 -- Ultimate UI Library v2.0
 -- Combines Linoria's functionality with Skeet's aesthetics
+-- Features: Draggable, Themeable, Modular, Performant
 
 local UserInputService = game:GetService("UserInputService")
 local TextService = game:GetService("TextService")
@@ -8,6 +9,7 @@ local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
@@ -17,6 +19,7 @@ local ProtectGui = protectgui or (syn and syn.protect_gui) or (function() end)
 
 --// Library Container
 local Library = {
+    -- Registry
     Registry = {},
     RegistryMap = {},
     HudRegistry = {},
@@ -24,6 +27,7 @@ local Library = {
     OpenedFrames = {},
     DependencyBoxes = {},
     
+    -- Theme Colors
     FontColor = Color3.fromRGB(255, 255, 255),
     MainColor = Color3.fromRGB(28, 28, 28),
     BackgroundColor = Color3.fromRGB(20, 20, 20),
@@ -32,21 +36,24 @@ local Library = {
     RiskColor = Color3.fromRGB(255, 50, 50),
     Black = Color3.new(0, 0, 0),
     
+    -- Typography
     Font = Enum.Font.Code,
     TextSize = 14,
     
+    -- State
     CurrentRainbowHue = 0,
     CurrentRainbowColor = Color3.fromHSV(0, 0.8, 1),
     ToggleKeybind = nil,
     NotifyOnError = true,
     ColorClipboard = nil,
     
+    -- References
     ScreenGui = nil,
     NotificationArea = nil,
     KeybindFrame = nil,
     KeybindContainer = nil,
     Watermark = nil,
-    WatermarkText = nil
+    WatermarkText = nil,
 }
 
 getgenv().Library = Library
@@ -58,9 +65,11 @@ getgenv().Options = Options
 --// Utility Functions
 function Library:Create(Class, Properties)
     local Instance = type(Class) == "string" and Instance.new(Class) or Class
+    
     for Property, Value in pairs(Properties) do
         Instance[Property] = Value
     end
+    
     return Instance
 end
 
@@ -82,8 +91,10 @@ function Library:CreateLabel(Properties, IsHud)
         TextSize = Library.TextSize,
         TextStrokeTransparency = 0
     })
+    
     Library:ApplyTextStroke(Label)
     Library:AddToRegistry(Label, { TextColor3 = "FontColor" }, IsHud)
+    
     return Library:Create(Label, Properties)
 end
 
@@ -107,8 +118,10 @@ function Library:AddToRegistry(Instance, Properties, IsHud)
         Properties = Properties,
         Idx = #Library.Registry + 1
     }
+    
     table.insert(Library.Registry, Data)
     Library.RegistryMap[Instance] = Data
+    
     if IsHud then
         table.insert(Library.HudRegistry, Data)
     end
@@ -117,16 +130,19 @@ end
 function Library:RemoveFromRegistry(Instance)
     local Data = Library.RegistryMap[Instance]
     if not Data then return end
+    
     for i = #Library.Registry, 1, -1 do
         if Library.Registry[i] == Data then
             table.remove(Library.Registry, i)
         end
     end
+    
     for i = #Library.HudRegistry, 1, -1 do
         if Library.HudRegistry[i] == Data then
             table.remove(Library.HudRegistry, i)
         end
     end
+    
     Library.RegistryMap[Instance] = nil
 end
 
@@ -145,6 +161,7 @@ end
 function Library:SafeCallback(Callback, ...)
     if not Callback then return end
     if not Library.NotifyOnError then return Callback(...) end
+    
     local Success, Result = pcall(Callback, ...)
     if not Success then
         local _, i = Result:find(":%d+: ")
@@ -164,18 +181,21 @@ function Library:Unload()
             Connection:Disconnect()
         end
     end
+    
     if Library.OnUnload then
         Library.OnUnload()
     end
+    
     if Library.ScreenGui then
         Library.ScreenGui:Destroy()
     end
+    
     getgenv().Library = nil
     getgenv().Toggles = nil
     getgenv().Options = nil
 end
 
---// Dragging System
+--// Dragging System (Enhanced from Skeet)
 function Library:MakeDraggable(Instance, Cutoff, OnDrag)
     Instance.Active = true
     local Dragging = false
@@ -185,11 +205,14 @@ function Library:MakeDraggable(Instance, Cutoff, OnDrag)
     Instance.InputBegan:Connect(function(Input)
         if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         if Library:MouseIsOverOpenedFrame() then return end
+        
         local ObjPos = Vector2.new(Mouse.X - Instance.AbsolutePosition.X, Mouse.Y - Instance.AbsolutePosition.Y)
         if ObjPos.Y > (Cutoff or 40) then return end
+        
         Dragging = true
         DragStart = Vector2.new(Mouse.X, Mouse.Y)
         StartPos = Instance.Position
+        
         if OnDrag then
             OnDrag(true)
         end
@@ -197,8 +220,12 @@ function Library:MakeDraggable(Instance, Cutoff, OnDrag)
     
     UserInputService.InputChanged:Connect(function(Input)
         if not Dragging or Input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        
         local Delta = Vector2.new(Input.Position.X - DragStart.X, Input.Position.Y - DragStart.Y)
-        Instance.Position = UDim2.new(StartPos.X.Scale, StartPos.X.Offset + Delta.X, StartPos.Y.Scale, StartPos.Y.Offset + Delta.Y)
+        Instance.Position = UDim2.new(
+            StartPos.X.Scale, StartPos.X.Offset + Delta.X,
+            StartPos.Y.Scale, StartPos.Y.Offset + Delta.Y
+        )
     end)
     
     UserInputService.InputEnded:Connect(function(Input)
@@ -215,7 +242,8 @@ end
 function Library:MouseIsOverOpenedFrame()
     for Frame, _ in pairs(Library.OpenedFrames) do
         local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize
-        if Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y then
+        if Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X
+           and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y then
             return true
         end
     end
@@ -224,7 +252,8 @@ end
 
 function Library:IsMouseOverFrame(Frame)
     local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize
-    return Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y
+    return Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X
+       and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y
 end
 
 --// Tooltip System
@@ -238,6 +267,7 @@ function Library:AddTooltip(InfoStr, HoverInstance)
         Visible = false,
         Parent = Library.ScreenGui
     })
+    
     local Label = Library:CreateLabel({
         Position = UDim2.fromOffset(5, 3),
         Size = UDim2.fromOffset(X, Y),
@@ -245,21 +275,26 @@ function Library:AddTooltip(InfoStr, HoverInstance)
         Text = InfoStr,
         Parent = Tooltip
     })
+    
     Library:AddToRegistry(Tooltip, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
+    
     local IsHovering = false
+    
     HoverInstance.MouseEnter:Connect(function()
         if Library:MouseIsOverOpenedFrame() then return end
         IsHovering = true
         Tooltip.Position = UDim2.fromOffset(Mouse.X + 15, Mouse.Y + 12)
         Tooltip.Visible = true
+        
         while IsHovering do
             RunService.Heartbeat:Wait()
             Tooltip.Position = UDim2.fromOffset(Mouse.X + 15, Mouse.Y + 12)
         end
     end)
+    
     HoverInstance.MouseLeave:Connect(function()
         IsHovering = false
         Tooltip.Visible = false
@@ -277,6 +312,7 @@ function Library:OnHighlight(HighlightInstance, Instance, Properties, Properties
             end
         end
     end)
+    
     HighlightInstance.MouseLeave:Connect(function()
         local Reg = Library.RegistryMap[Instance]
         for Property, ColorIdx in pairs(PropertiesDefault) do
@@ -292,6 +328,7 @@ end
 function Library:Notify(Text, Time)
     local XSize, YSize = Library:GetTextBounds(Text)
     YSize = YSize + 10
+    
     local NotifyOuter = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Library.OutlineColor,
@@ -301,6 +338,7 @@ function Library:Notify(Text, Time)
         ZIndex = 100,
         Parent = Library.NotificationArea
     })
+    
     local NotifyInner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -309,10 +347,12 @@ function Library:Notify(Text, Time)
         ZIndex = 101,
         Parent = NotifyOuter
     })
+    
     Library:AddToRegistry(NotifyInner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     }, true)
+    
     local LeftBar = Library:Create("Frame", {
         BackgroundColor3 = Library.AccentColor,
         BorderSizePixel = 0,
@@ -321,7 +361,9 @@ function Library:Notify(Text, Time)
         ZIndex = 102,
         Parent = NotifyOuter
     })
+    
     Library:AddToRegistry(LeftBar, { BackgroundColor3 = "AccentColor" }, true)
+    
     local NotifyLabel = Library:CreateLabel({
         Position = UDim2.fromOffset(6, 0),
         Size = UDim2.new(1, -10, 1, 0),
@@ -329,13 +371,17 @@ function Library:Notify(Text, Time)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = NotifyInner
     })
+    
+    -- Animation
     TweenService:Create(NotifyOuter, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, XSize + 20, 0, YSize)
     }):Play()
+    
     task.delay(Time or 5, function()
         TweenService:Create(NotifyOuter, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Size = UDim2.new(0, 0, 0, YSize)
         }):Play()
+        
         task.wait(0.4)
         NotifyOuter:Destroy()
     end)
@@ -344,6 +390,7 @@ end
 --// Watermark System
 function Library:SetWatermark(Text)
     if not Library.Watermark then return end
+    
     local X, Y = Library:GetTextBounds(Text)
     Library.Watermark.Size = UDim2.new(0, X + 20, 0, Y + 10)
     Library.Watermark.Visible = true
@@ -362,7 +409,7 @@ Library:GiveSignal(RunService.RenderStepped:Connect(function(Delta)
     Library.CurrentRainbowColor = Color3.fromHSV(Library.CurrentRainbowHue, 0.8, 1)
 end))
 
---// Base Groupbox
+--// Base Groupbox (Container for Elements)
 local BaseGroupbox = {}
 BaseGroupbox.__index = BaseGroupbox
 
@@ -385,11 +432,14 @@ function BaseGroupbox:AddLabel(Text, DoesWrap)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     if DoesWrap then
         local Y = select(2, Library:GetTextBounds(Text, Library.Font, 14, Vector2.new(TextLabel.AbsoluteSize.X, math.huge)))
         TextLabel.Size = UDim2.new(1, -4, 0, Y)
     end
+    
     Label.TextLabel = TextLabel
+    
     function Label:SetText(NewText)
         TextLabel.Text = NewText
         if DoesWrap then
@@ -398,6 +448,7 @@ function BaseGroupbox:AddLabel(Text, DoesWrap)
         end
         self:Resize()
     end
+    
     self:AddBlank(5)
     self:Resize()
     return Label
@@ -405,6 +456,7 @@ end
 
 function BaseGroupbox:AddDivider()
     self:AddBlank(2)
+    
     local DividerOuter = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -412,6 +464,7 @@ function BaseGroupbox:AddDivider()
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local DividerInner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -420,23 +473,27 @@ function BaseGroupbox:AddDivider()
         ZIndex = 6,
         Parent = DividerOuter
     })
+    
     Library:AddToRegistry(DividerOuter, { BorderColor3 = "Black" })
     Library:AddToRegistry(DividerInner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
+    
     self:AddBlank(9)
     self:Resize()
 end
 
 function BaseGroupbox:AddButton(Info)
     Info = type(Info) == "table" and Info or { Text = Info, Func = select(2, ...) }
+    
     local Button = {
         Text = Info.Text,
         Func = Info.Func,
         DoubleClick = Info.DoubleClick,
         Locked = false
     }
+    
     local Outer = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -444,6 +501,7 @@ function BaseGroupbox:AddButton(Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local Inner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -452,11 +510,13 @@ function BaseGroupbox:AddButton(Info)
         ZIndex = 6,
         Parent = Outer
     })
+    
     local Label = Library:CreateLabel({
         Size = UDim2.new(1, 0, 1, 0),
         Text = Button.Text,
         Parent = Inner
     })
+    
     Library:Create("UIGradient", {
         Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
@@ -465,29 +525,37 @@ function BaseGroupbox:AddButton(Info)
         Rotation = 90,
         Parent = Inner
     })
+    
     Library:AddToRegistry(Outer, { BorderColor3 = "Black" })
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
+    
     Library:OnHighlight(Outer, Outer,
         { BorderColor3 = "AccentColor" },
         { BorderColor3 = "Black" }
     )
+    
     if Info.Tooltip then
         Library:AddTooltip(Info.Tooltip, Outer)
     end
+    
     local function ValidateClick(Input)
-        return Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame()
+        return Input.UserInputType == Enum.UserInputType.MouseButton1 
+           and not Library:MouseIsOverOpenedFrame()
     end
+    
     Outer.InputBegan:Connect(function(Input)
         if not ValidateClick(Input) or Button.Locked then return end
+        
         if Button.DoubleClick then
             Library:RemoveFromRegistry(Label)
             Library:AddToRegistry(Label, { TextColor3 = "AccentColor" })
             Label.TextColor3 = Library.AccentColor
             Label.Text = "Are you sure?"
             Button.Locked = true
+            
             local Clicked = false
             local Connection
             Connection = Outer.InputBegan:Connect(function(Input2)
@@ -496,6 +564,7 @@ function BaseGroupbox:AddButton(Info)
                     Connection:Disconnect()
                 end
             end)
+            
             task.delay(0.5, function()
                 if Connection then Connection:Disconnect() end
                 Library:RemoveFromRegistry(Label)
@@ -503,6 +572,7 @@ function BaseGroupbox:AddButton(Info)
                 Label.TextColor3 = Library.FontColor
                 Label.Text = Button.Text
                 Button.Locked = false
+                
                 if Clicked then
                     Library:SafeCallback(Button.Func)
                 end
@@ -511,13 +581,16 @@ function BaseGroupbox:AddButton(Info)
             Library:SafeCallback(Button.Func)
         end
     end)
+    
     Button.Outer = Outer
     Button.Inner = Inner
     Button.Label = Label
+    
     function Button:AddTooltip(Text)
         Library:AddTooltip(Text, self.Outer)
         return self
     end
+    
     self:AddBlank(5)
     self:Resize()
     return Button
@@ -531,6 +604,7 @@ function BaseGroupbox:AddToggle(Idx, Info)
         Addons = {},
         Risky = Info.Risky
     }
+    
     local Outer = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -538,6 +612,7 @@ function BaseGroupbox:AddToggle(Idx, Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local Inner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -546,6 +621,7 @@ function BaseGroupbox:AddToggle(Idx, Info)
         ZIndex = 6,
         Parent = Outer
     })
+    
     local Label = Library:CreateLabel({
         Size = UDim2.new(0, 200, 1, 0),
         Position = UDim2.new(1, 8, 0, 0),
@@ -554,71 +630,88 @@ function BaseGroupbox:AddToggle(Idx, Info)
         ZIndex = 6,
         Parent = Inner
     })
+    
     local ToggleRegion = Library:Create("Frame", {
         BackgroundTransparency = 1,
         Size = UDim2.new(0, 170, 1, 0),
         ZIndex = 8,
         Parent = Outer
     })
+    
     Library:AddToRegistry(Outer, { BorderColor3 = "Black" })
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
+    
     Library:OnHighlight(ToggleRegion, Outer,
         { BorderColor3 = "AccentColor" },
         { BorderColor3 = "Black" }
     )
+    
     if Info.Tooltip then
         Library:AddTooltip(Info.Tooltip, ToggleRegion)
     end
+    
     if Toggle.Risky then
         Library:RemoveFromRegistry(Label)
         Label.TextColor3 = Library.RiskColor
         Library:AddToRegistry(Label, { TextColor3 = "RiskColor" })
     end
+    
     function Toggle:Display()
         Inner.BackgroundColor3 = Toggle.Value and Library.AccentColor or Library.MainColor
         Inner.BorderColor3 = Toggle.Value and Library:GetDarkerColor(Library.AccentColor) or Library.OutlineColor
+        
         local Reg = Library.RegistryMap[Inner]
         if Reg then
             Reg.Properties.BackgroundColor3 = Toggle.Value and "AccentColor" or "MainColor"
             Reg.Properties.BorderColor3 = Toggle.Value and "AccentColorDark" or "OutlineColor"
         end
     end
+    
     function Toggle:SetValue(Bool)
         Bool = not not Bool
         Toggle.Value = Bool
         Toggle:Display()
+        
         for _, Addon in ipairs(Toggle.Addons) do
             if Addon.Type == "KeyPicker" and Addon.SyncToggleState then
                 Addon.Toggled = Bool
                 Addon:Update()
             end
         end
+        
         Library:SafeCallback(Toggle.Callback, Toggle.Value)
         if Toggle.Changed then
             Library:SafeCallback(Toggle.Changed, Toggle.Value)
         end
         Library:UpdateDependencyBoxes()
     end
+    
     function Toggle:OnChanged(Func)
         Toggle.Changed = Func
         Func(Toggle.Value)
     end
+    
     ToggleRegion.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame() then
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 
+           and not Library:MouseIsOverOpenedFrame() then
             Toggle:SetValue(not Toggle.Value)
         end
     end)
+    
     Toggle:Display()
     self:AddBlank(7)
     self:Resize()
+    
     Toggle.TextLabel = Label
     Toggle.Container = self.Container
+    
     setmetatable(Toggle, { __index = function(t, k) 
         return rawget(t, k) or BaseAddons[k] 
     end })
+    
     Toggles[Idx] = Toggle
     Library:UpdateDependencyBoxes()
     return Toggle
@@ -633,6 +726,7 @@ function BaseGroupbox:AddSlider(Idx, Info)
         Type = "Slider",
         Callback = Info.Callback or function() end
     }
+    
     if not Info.Compact then
         Library:CreateLabel({
             Size = UDim2.new(1, 0, 0, 12),
@@ -645,6 +739,7 @@ function BaseGroupbox:AddSlider(Idx, Info)
         })
         self:AddBlank(3)
     end
+    
     local Outer = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -652,6 +747,7 @@ function BaseGroupbox:AddSlider(Idx, Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local Inner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -660,6 +756,7 @@ function BaseGroupbox:AddSlider(Idx, Info)
         ZIndex = 6,
         Parent = Outer
     })
+    
     local Fill = Library:Create("Frame", {
         BackgroundColor3 = Library.AccentColor,
         BorderColor3 = Library:GetDarkerColor(Library.AccentColor),
@@ -667,6 +764,7 @@ function BaseGroupbox:AddSlider(Idx, Info)
         ZIndex = 7,
         Parent = Inner
     })
+    
     local HideBorder = Library:Create("Frame", {
         BackgroundColor3 = Library.AccentColor,
         BorderSizePixel = 0,
@@ -675,12 +773,14 @@ function BaseGroupbox:AddSlider(Idx, Info)
         ZIndex = 8,
         Parent = Fill
     })
+    
     local DisplayLabel = Library:CreateLabel({
         Size = UDim2.new(1, 0, 1, 0),
         Text = tostring(Slider.Value),
         ZIndex = 9,
         Parent = Inner
     })
+    
     Library:AddToRegistry(Outer, { BorderColor3 = "Black" })
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
@@ -690,20 +790,25 @@ function BaseGroupbox:AddSlider(Idx, Info)
         BackgroundColor3 = "AccentColor",
         BorderColor3 = "AccentColorDark"
     })
+    
     Library:OnHighlight(Outer, Outer,
         { BorderColor3 = "AccentColor" },
         { BorderColor3 = "Black" }
     )
+    
     if Info.Tooltip then
         Library:AddTooltip(Info.Tooltip, Outer)
     end
+    
     local MaxSize = 232
+    
     local function Round(Value)
         if Slider.Rounding == 0 then
             return math.floor(Value)
         end
         return tonumber(string.format("%." .. Slider.Rounding .. "f", Value))
     end
+    
     function Slider:Display()
         local Suffix = Info.Suffix or ""
         if Info.Compact then
@@ -711,34 +816,44 @@ function BaseGroupbox:AddSlider(Idx, Info)
         else
             DisplayLabel.Text = Slider.Value .. Suffix .. "/" .. Slider.Max .. Suffix
         end
+        
         local X = math.ceil(Library:MapValue(Slider.Value, Slider.Min, Slider.Max, 0, MaxSize))
         Fill.Size = UDim2.new(0, X, 1, 0)
         HideBorder.Visible = X > 0 and X < MaxSize
     end
+    
     function Slider:SetValue(Str)
         local Num = tonumber(Str)
         if not Num then return end
+        
         Num = math.clamp(Round(Num), Slider.Min, Slider.Max)
         Slider.Value = Num
         Slider:Display()
+        
         Library:SafeCallback(Slider.Callback, Slider.Value)
         if Slider.Changed then
             Library:SafeCallback(Slider.Changed, Slider.Value)
         end
     end
+    
     function Slider:OnChanged(Func)
         Slider.Changed = Func
         Func(Slider.Value)
     end
+    
     Inner.InputBegan:Connect(function(Input)
-        if Input.UserInputType ~= Enum.UserInputType.MouseButton1 or Library:MouseIsOverOpenedFrame() then return end
+        if Input.UserInputType ~= Enum.UserInputType.MouseButton1 
+           or Library:MouseIsOverOpenedFrame() then return end
+        
         local mPos = Mouse.X
         local gPos = Fill.Size.X.Offset
         local Diff = mPos - (Fill.AbsolutePosition.X + gPos)
+        
         while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
             local nMPos = Mouse.X
             local nX = math.clamp(gPos + (nMPos - mPos) + Diff, 0, MaxSize)
             local nValue = Round(Library:MapValue(nX, 0, MaxSize, Slider.Min, Slider.Max))
+            
             if nValue ~= Slider.Value then
                 Slider.Value = nValue
                 Slider:Display()
@@ -747,12 +862,15 @@ function BaseGroupbox:AddSlider(Idx, Info)
                     Library:SafeCallback(Slider.Changed, Slider.Value)
                 end
             end
+            
             RunService.RenderStepped:Wait()
         end
     end)
+    
     Slider:Display()
     self:AddBlank(7)
     self:Resize()
+    
     Options[Idx] = Slider
     return Slider
 end
@@ -765,6 +883,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         Type = "Dropdown",
         Callback = Info.Callback or function() end
     }
+    
     if not Info.Compact then
         Library:CreateLabel({
             Size = UDim2.new(1, 0, 0, 12),
@@ -777,6 +896,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         })
         self:AddBlank(3)
     end
+    
     local Outer = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -784,6 +904,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local Inner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -792,6 +913,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         ZIndex = 6,
         Parent = Outer
     })
+    
     local Gradient = Library:Create("UIGradient", {
         Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
@@ -800,6 +922,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         Rotation = 90,
         Parent = Inner
     })
+    
     local Arrow = Library:Create("ImageLabel", {
         AnchorPoint = Vector2.new(0, 0.5),
         BackgroundTransparency = 1,
@@ -809,6 +932,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         ZIndex = 8,
         Parent = Inner
     })
+    
     local ItemList = Library:CreateLabel({
         Position = UDim2.fromOffset(6, 0),
         Size = UDim2.new(1, -28, 1, 0),
@@ -817,18 +941,23 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         ZIndex = 7,
         Parent = Inner
     })
+    
     Library:AddToRegistry(Outer, { BorderColor3 = "Black" })
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
+    
     Library:OnHighlight(Outer, Outer,
         { BorderColor3 = "AccentColor" },
         { BorderColor3 = "Black" }
     )
+    
     if Info.Tooltip then
         Library:AddTooltip(Info.Tooltip, Outer)
     end
+    
+    -- Dropdown List
     local ListOuter = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -836,6 +965,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         Visible = false,
         Parent = Library.ScreenGui
     })
+    
     local ListInner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -844,6 +974,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         ZIndex = 21,
         Parent = ListOuter
     })
+    
     local Scrolling = Library:Create("ScrollingFrame", {
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -856,21 +987,25 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
         BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
     })
+    
     Library:Create("UIListLayout", {
         Padding = UDim.new(0, 0),
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Parent = Scrolling
     })
+    
     Library:AddToRegistry(ListInner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
     Library:AddToRegistry(Scrolling, { ScrollBarImageColor3 = "AccentColor" })
+    
     local function RecalculateList()
         ListOuter.Position = UDim2.fromOffset(Outer.AbsolutePosition.X, Outer.AbsolutePosition.Y + Outer.AbsoluteSize.Y + 1)
         ListOuter.Size = UDim2.fromOffset(Outer.AbsoluteSize.X, math.min(#Dropdown.Values * 22 + 2, 180))
     end
+    
     function Dropdown:Display()
         local Str = ""
         if Info.Multi then
@@ -885,12 +1020,14 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         end
         ItemList.Text = Str == "" and "--" or Str
     end
+    
     function Dropdown:BuildList()
         for _, Child in ipairs(Scrolling:GetChildren()) do
             if not Child:IsA("UIListLayout") then
                 Child:Destroy()
             end
         end
+        
         for _, Value in ipairs(Dropdown.Values) do
             local Button = Library:Create("Frame", {
                 BackgroundColor3 = Library.MainColor,
@@ -901,6 +1038,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
                 Active = true,
                 Parent = Scrolling
             })
+            
             local ButtonLabel = Library:CreateLabel({
                 Size = UDim2.new(1, -12, 1, 0),
                 Position = UDim2.fromOffset(6, 0),
@@ -909,15 +1047,19 @@ function BaseGroupbox:AddDropdown(Idx, Info)
                 ZIndex = 25,
                 Parent = Button
             })
+            
             Library:AddToRegistry(Button, {
                 BackgroundColor3 = "MainColor",
                 BorderColor3 = "OutlineColor"
             })
+            
             Library:OnHighlight(Button, Button,
                 { BorderColor3 = "AccentColor", ZIndex = 24 },
                 { BorderColor3 = "OutlineColor", ZIndex = 23 }
             )
+            
             local Selected = Info.Multi and Dropdown.Value[Value] or Dropdown.Value == Value
+            
             local function Update()
                 Selected = Info.Multi and Dropdown.Value[Value] or Dropdown.Value == Value
                 ButtonLabel.TextColor3 = Selected and Library.AccentColor or Library.FontColor
@@ -926,14 +1068,17 @@ function BaseGroupbox:AddDropdown(Idx, Info)
                     Reg.Properties.TextColor3 = Selected and "AccentColor" or "FontColor"
                 end
             end
+            
             ButtonLabel.InputBegan:Connect(function(Input)
                 if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+                
                 if Info.Multi then
                     Dropdown.Value[Value] = not Selected and true or nil
                 else
                     Dropdown.Value = not Selected and Value or nil
                     Dropdown:Close()
                 end
+                
                 Update()
                 Dropdown:Display()
                 Library:SafeCallback(Dropdown.Callback, Dropdown.Value)
@@ -941,10 +1086,13 @@ function BaseGroupbox:AddDropdown(Idx, Info)
                     Library:SafeCallback(Dropdown.Changed, Dropdown.Value)
                 end
             end)
+            
             Update()
         end
+        
         Scrolling.CanvasSize = UDim2.fromOffset(0, #Dropdown.Values * 22 + 1)
     end
+    
     function Dropdown:Open()
         RecalculateList()
         ListOuter.Visible = true
@@ -952,11 +1100,13 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         Arrow.Rotation = 180
         Dropdown:BuildList()
     end
+    
     function Dropdown:Close()
         ListOuter.Visible = false
         Library.OpenedFrames[ListOuter] = nil
         Arrow.Rotation = 0
     end
+    
     function Dropdown:SetValue(Val)
         if Info.Multi then
             Dropdown.Value = {}
@@ -971,12 +1121,15 @@ function BaseGroupbox:AddDropdown(Idx, Info)
         Dropdown:Display()
         Dropdown:BuildList()
     end
+    
     function Dropdown:OnChanged(Func)
         Dropdown.Changed = Func
         Func(Dropdown.Value)
     end
+    
     Outer.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 and not Library:MouseIsOverOpenedFrame() then
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 
+           and not Library:MouseIsOverOpenedFrame() then
             if ListOuter.Visible then
                 Dropdown:Close()
             else
@@ -984,6 +1137,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
             end
         end
     end)
+    
     UserInputService.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1 and ListOuter.Visible then
             if not Library:IsMouseOverFrame(ListOuter) and not Library:IsMouseOverFrame(Outer) then
@@ -991,10 +1145,12 @@ function BaseGroupbox:AddDropdown(Idx, Info)
             end
         end
     end)
+    
     Dropdown:Display()
     Dropdown:BuildList()
     self:AddBlank(7)
     self:Resize()
+    
     Options[Idx] = Dropdown
     return Dropdown
 end
@@ -1007,6 +1163,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         Type = "Input",
         Callback = Info.Callback or function() end
     }
+    
     local Label = Library:CreateLabel({
         Size = UDim2.new(1, 0, 0, 15),
         TextSize = 14,
@@ -1015,7 +1172,9 @@ function BaseGroupbox:AddInput(Idx, Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     self:AddBlank(1)
+    
     local Outer = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -1023,6 +1182,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         ZIndex = 5,
         Parent = self.Container
     })
+    
     local Inner = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -1031,6 +1191,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         ZIndex = 6,
         Parent = Outer
     })
+    
     local Gradient = Library:Create("UIGradient", {
         Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
@@ -1039,6 +1200,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         Rotation = 90,
         Parent = Inner
     })
+    
     local Container = Library:Create("Frame", {
         BackgroundTransparency = 1,
         ClipsDescendants = true,
@@ -1047,6 +1209,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         ZIndex = 7,
         Parent = Inner
     })
+    
     local Box = Library:Create("TextBox", {
         BackgroundTransparency = 1,
         Position = UDim2.fromOffset(0, 0),
@@ -1062,38 +1225,48 @@ function BaseGroupbox:AddInput(Idx, Info)
         ZIndex = 7,
         Parent = Container
     })
+    
     Library:ApplyTextStroke(Box)
+    
     Library:AddToRegistry(Outer, { BorderColor3 = "Black" })
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
     Library:AddToRegistry(Box, { TextColor3 = "FontColor" })
+    
     Library:OnHighlight(Outer, Outer,
         { BorderColor3 = "AccentColor" },
         { BorderColor3 = "Black" }
     )
+    
     if Info.Tooltip then
         Library:AddTooltip(Info.Tooltip, Outer)
     end
+    
     function Input:SetValue(Text)
         if Info.MaxLength and #Text > Info.MaxLength then
             Text = Text:sub(1, Info.MaxLength)
         end
+        
         if Input.Numeric and Text ~= "" and not tonumber(Text) then
             Text = Input.Value
         end
+        
         Input.Value = Text
         Box.Text = Text
+        
         Library:SafeCallback(Input.Callback, Input.Value)
         if Input.Changed then
             Library:SafeCallback(Input.Changed, Input.Value)
         end
     end
+    
     function Input:OnChanged(Func)
         Input.Changed = Func
         Func(Input.Value)
     end
+    
     if Input.Finished then
         Box.FocusLost:Connect(function(Enter)
             if Enter then
@@ -1105,28 +1278,36 @@ function BaseGroupbox:AddInput(Idx, Info)
             Input:SetValue(Box.Text)
         end)
     end
+    
+    -- Cursor tracking
     local function UpdateCursor()
         if not Box:IsFocused() then
             Box.Position = UDim2.fromOffset(2, 0)
             return
         end
+        
         local Cursor = Box.CursorPosition
         if Cursor == -1 then return end
+        
         local SubText = Box.Text:sub(1, Cursor - 1)
         local Width = TextService:GetTextSize(SubText, 14, Library.Font, Vector2.new(math.huge, math.huge)).X
         local CurrentPos = Box.Position.X.Offset + Width
+        
         if CurrentPos < 2 then
             Box.Position = UDim2.fromOffset(2 - Width, 0)
         elseif CurrentPos > Container.AbsoluteSize.X - 4 then
             Box.Position = UDim2.fromOffset(Container.AbsoluteSize.X - Width - 4, 0)
         end
     end
+    
     Box:GetPropertyChangedSignal("Text"):Connect(UpdateCursor)
     Box:GetPropertyChangedSignal("CursorPosition"):Connect(UpdateCursor)
     Box.Focused:Connect(UpdateCursor)
     Box.FocusLost:Connect(function() Box.Position = UDim2.fromOffset(2, 0) end)
+    
     self:AddBlank(7)
     self:Resize()
+    
     Options[Idx] = Input
     return Input
 end
@@ -1135,32 +1316,39 @@ function BaseGroupbox:AddDependencyBox()
     local Depbox = {
         Dependencies = {}
     }
+    
     local Holder = Library:Create("Frame", {
         BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 0, 0),
         Visible = false,
         Parent = self.Container
     })
+    
     local Frame = Library:Create("Frame", {
         BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 1, 0),
         Parent = Holder
     })
+    
     local Layout = Library:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Parent = Frame
     })
+    
     function Depbox:Resize()
         Holder.Size = UDim2.new(1, 0, 0, Layout.AbsoluteContentSize.Y)
         self:Resize()
     end
+    
     Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         Depbox:Resize()
     end)
+    
     Holder:GetPropertyChangedSignal("Visible"):Connect(function()
         Depbox:Resize()
     end)
+    
     function Depbox:Update()
         for _, Dep in ipairs(Depbox.Dependencies) do
             local Elem, Value = Dep[1], Dep[2]
@@ -1173,17 +1361,20 @@ function BaseGroupbox:AddDependencyBox()
         Holder.Visible = true
         Depbox:Resize()
     end
+    
     function Depbox:SetupDependencies(Dependencies)
         Depbox.Dependencies = Dependencies
         Depbox:Update()
     end
+    
     Depbox.Container = Frame
     setmetatable(Depbox, { __index = BaseGroupbox })
+    
     table.insert(Library.DependencyBoxes, Depbox)
     return Depbox
 end
 
---// Addons
+--// Addons (ColorPicker, KeyPicker)
 local BaseAddons = {}
 
 function BaseAddons:AddColorPicker(Idx, Info)
@@ -1194,10 +1385,12 @@ function BaseAddons:AddColorPicker(Idx, Info)
         Title = Info.Title or "Color",
         Callback = Info.Callback or function() end
     }
+    
     function ColorPicker:SetHSVFromRGB(Color)
         ColorPicker.Hue, ColorPicker.Sat, ColorPicker.Vib = Color3.toHSV(Color)
     end
     ColorPicker:SetHSVFromRGB(ColorPicker.Value)
+    
     local DisplayFrame = Library:Create("Frame", {
         BackgroundColor3 = ColorPicker.Value,
         BorderColor3 = Library:GetDarkerColor(ColorPicker.Value),
@@ -1206,6 +1399,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 6,
         Parent = self.TextLabel
     })
+    
     if Info.Transparency then
         Library:Create("ImageLabel", {
             BorderSizePixel = 0,
@@ -1215,6 +1409,8 @@ function BaseAddons:AddColorPicker(Idx, Info)
             Parent = DisplayFrame
         })
     end
+    
+    -- Picker Frame
     local PickerOuter = Library:Create("Frame", {
         Name = "Color",
         BackgroundColor3 = Color3.new(1, 1, 1),
@@ -1225,9 +1421,11 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 15,
         Parent = Library.ScreenGui
     })
+    
     DisplayFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
         PickerOuter.Position = UDim2.fromOffset(DisplayFrame.AbsolutePosition.X, DisplayFrame.AbsolutePosition.Y + 18)
     end)
+    
     local PickerInner = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Library.OutlineColor,
@@ -1236,6 +1434,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 16,
         Parent = PickerOuter
     })
+    
     local Highlight = Library:Create("Frame", {
         BackgroundColor3 = Library.AccentColor,
         BorderSizePixel = 0,
@@ -1243,6 +1442,8 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 17,
         Parent = PickerInner
     })
+    
+    -- Saturation/Value Map
     local SatVibOuter = Library:Create("Frame", {
         BorderColor3 = Color3.new(0, 0, 0),
         Position = UDim2.fromOffset(4, 25),
@@ -1250,6 +1451,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 17,
         Parent = PickerInner
     })
+    
     local SatVibInner = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Library.OutlineColor,
@@ -1258,6 +1460,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 18,
         Parent = SatVibOuter
     })
+    
     local SatVibMap = Library:Create("ImageLabel", {
         BorderSizePixel = 0,
         Size = UDim2.new(1, 0, 1, 0),
@@ -1265,6 +1468,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         Image = "rbxassetid://4155801252",
         Parent = SatVibInner
     })
+    
     local Cursor = Library:Create("ImageLabel", {
         AnchorPoint = Vector2.new(0.5, 0.5),
         Size = UDim2.fromOffset(6, 6),
@@ -1274,6 +1478,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 19,
         Parent = SatVibMap
     })
+    
     Library:Create("ImageLabel", {
         Size = UDim2.new(0, 4, 0, 4),
         Position = UDim2.fromOffset(1, 1),
@@ -1282,6 +1487,8 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 20,
         Parent = Cursor
     })
+    
+    -- Hue Slider
     local HueOuter = Library:Create("Frame", {
         BorderColor3 = Color3.new(0, 0, 0),
         Position = UDim2.fromOffset(208, 25),
@@ -1289,6 +1496,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 17,
         Parent = PickerInner
     })
+    
     local HueInner = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(1, 1, 1),
         BorderSizePixel = 0,
@@ -1296,6 +1504,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 18,
         Parent = HueOuter
     })
+    
     local HueCursor = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(1, 1, 1),
         AnchorPoint = Vector2.new(0, 0.5),
@@ -1304,15 +1513,20 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 18,
         Parent = HueInner
     })
+    
+    -- Hue Gradient
     local Sequence = {}
     for i = 0, 1, 0.1 do
         table.insert(Sequence, ColorSequenceKeypoint.new(i, Color3.fromHSV(i, 1, 1)))
     end
+    
     Library:Create("UIGradient", {
         Color = ColorSequence.new(Sequence),
         Rotation = 90,
         Parent = HueInner
     })
+    
+    -- Input Boxes
     local HexBox = Library:Create("TextBox", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -1327,6 +1541,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 18,
         Parent = PickerInner
     })
+    
     local RgbBox = Library:Create("TextBox", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -1341,6 +1556,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
         ZIndex = 18,
         Parent = PickerInner
     })
+    
     Library:AddToRegistry(PickerInner, {
         BackgroundColor3 = "BackgroundColor",
         BorderColor3 = "OutlineColor"
@@ -1348,25 +1564,31 @@ function BaseAddons:AddColorPicker(Idx, Info)
     Library:AddToRegistry(Highlight, { BackgroundColor3 = "AccentColor" })
     Library:AddToRegistry(HexBox, { TextColor3 = "FontColor" })
     Library:AddToRegistry(RgbBox, { TextColor3 = "FontColor" })
+    
     function ColorPicker:Display()
         ColorPicker.Value = Color3.fromHSV(ColorPicker.Hue, ColorPicker.Sat, ColorPicker.Vib)
         SatVibMap.BackgroundColor3 = Color3.fromHSV(ColorPicker.Hue, 1, 1)
+        
         DisplayFrame.BackgroundColor3 = ColorPicker.Value
         DisplayFrame.BackgroundTransparency = ColorPicker.Transparency
         DisplayFrame.BorderColor3 = Library:GetDarkerColor(ColorPicker.Value)
+        
         Cursor.Position = UDim2.new(ColorPicker.Sat, 0, 1 - ColorPicker.Vib, 0)
         HueCursor.Position = UDim2.new(0, 0, ColorPicker.Hue, 0)
+        
         HexBox.Text = "#" .. ColorPicker.Value:ToHex()
         RgbBox.Text = string.format("%d, %d, %d",
             math.floor(ColorPicker.Value.R * 255),
             math.floor(ColorPicker.Value.G * 255),
             math.floor(ColorPicker.Value.B * 255)
         )
+        
         Library:SafeCallback(ColorPicker.Callback, ColorPicker.Value)
         if ColorPicker.Changed then
             Library:SafeCallback(ColorPicker.Changed, ColorPicker.Value)
         end
     end
+    
     function ColorPicker:Show()
         for Frame, _ in pairs(Library.OpenedFrames) do
             if Frame.Name == "Color" then
@@ -1377,47 +1599,62 @@ function BaseAddons:AddColorPicker(Idx, Info)
         PickerOuter.Visible = true
         Library.OpenedFrames[PickerOuter] = true
     end
+    
     function ColorPicker:Hide()
         PickerOuter.Visible = false
         Library.OpenedFrames[PickerOuter] = nil
     end
+    
     function ColorPicker:SetValueRGB(Color, Transparency)
         ColorPicker.Transparency = Transparency or 0
         ColorPicker:SetHSVFromRGB(Color)
         ColorPicker:Display()
     end
+    
     function ColorPicker:OnChanged(Func)
         ColorPicker.Changed = Func
         Func(ColorPicker.Value)
     end
+    
+    -- Input Handling
     SatVibMap.InputBegan:Connect(function(Input)
         if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        
         while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
             local MinX = SatVibMap.AbsolutePosition.X
             local MaxX = MinX + SatVibMap.AbsoluteSize.X
             local MouseX = math.clamp(Mouse.X, MinX, MaxX)
+            
             local MinY = SatVibMap.AbsolutePosition.Y
             local MaxY = MinY + SatVibMap.AbsoluteSize.Y
             local MouseY = math.clamp(Mouse.Y, MinY, MaxY)
+            
             ColorPicker.Sat = (MouseX - MinX) / (MaxX - MinX)
             ColorPicker.Vib = 1 - ((MouseY - MinY) / (MaxY - MinY))
             ColorPicker:Display()
+            
             RunService.RenderStepped:Wait()
         end
     end)
+    
     HueInner.InputBegan:Connect(function(Input)
         if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        
         while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
             local MinY = HueInner.AbsolutePosition.Y
             local MaxY = MinY + HueInner.AbsoluteSize.Y
             local MouseY = math.clamp(Mouse.Y, MinY, MaxY)
+            
             ColorPicker.Hue = (MouseY - MinY) / (MaxY - MinY)
             ColorPicker:Display()
+            
             RunService.RenderStepped:Wait()
         end
     end)
+    
     DisplayFrame.InputBegan:Connect(function(Input)
         if Library:MouseIsOverOpenedFrame() then return end
+        
         if Input.UserInputType == Enum.UserInputType.MouseButton1 then
             if PickerOuter.Visible then
                 ColorPicker:Hide()
@@ -1426,6 +1663,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
             end
         end
     end)
+    
     HexBox.FocusLost:Connect(function(Enter)
         if Enter then
             local Success, Result = pcall(Color3.fromHex, HexBox.Text)
@@ -1435,6 +1673,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
             end
         end
     end)
+    
     RgbBox.FocusLost:Connect(function(Enter)
         if Enter then
             local r, g, b = RgbBox.Text:match("(%d+),%s*(%d+),%s*(%d+)")
@@ -1444,6 +1683,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
             end
         end
     end)
+    
     UserInputService.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1 and PickerOuter.Visible then
             if not Library:IsMouseOverFrame(PickerOuter) and not Library:IsMouseOverFrame(DisplayFrame) then
@@ -1451,6 +1691,7 @@ function BaseAddons:AddColorPicker(Idx, Info)
             end
         end
     end)
+    
     ColorPicker:Display()
     Options[Idx] = ColorPicker
     return self
@@ -1465,10 +1706,12 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         SyncToggleState = Info.SyncToggleState or false,
         Callback = Info.Callback or function() end
     }
+    
     if KeyPicker.SyncToggleState then
         Info.Modes = { "Toggle" }
         KeyPicker.Mode = "Toggle"
     end
+    
     local PickOuter = Library:Create("Frame", {
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderColor3 = Color3.new(0, 0, 0),
@@ -1476,6 +1719,7 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         ZIndex = 6,
         Parent = self.TextLabel
     })
+    
     local PickInner = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Library.OutlineColor,
@@ -1484,16 +1728,20 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         ZIndex = 7,
         Parent = PickOuter
     })
+    
     local DisplayLabel = Library:CreateLabel({
         Size = UDim2.new(1, 0, 1, 0),
         TextSize = 12,
         Text = Info.Default,
         Parent = PickInner
     })
+    
     Library:AddToRegistry(PickInner, {
         BackgroundColor3 = "BackgroundColor",
         BorderColor3 = "OutlineColor"
     })
+    
+    -- Mode Selector
     local ModeOuter = Library:Create("Frame", {
         BorderColor3 = Color3.new(0, 0, 0),
         Position = UDim2.fromOffset(self.TextLabel.AbsolutePosition.X + self.TextLabel.AbsoluteSize.X + 4, self.TextLabel.AbsolutePosition.Y),
@@ -1502,9 +1750,11 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         ZIndex = 14,
         Parent = Library.ScreenGui
     })
+    
     self.TextLabel:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
         ModeOuter.Position = UDim2.fromOffset(self.TextLabel.AbsolutePosition.X + self.TextLabel.AbsoluteSize.X + 4, self.TextLabel.AbsolutePosition.Y)
     end)
+    
     local ModeInner = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Library.OutlineColor,
@@ -1513,15 +1763,19 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         ZIndex = 15,
         Parent = ModeOuter
     })
+    
     Library:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Parent = ModeInner
     })
+    
     Library:AddToRegistry(ModeInner, {
         BackgroundColor3 = "BackgroundColor",
         BorderColor3 = "OutlineColor"
     })
+    
+    -- Keybind Container Label
     local ContainerLabel = Library:CreateLabel({
         TextXAlignment = Enum.TextXAlignment.Left,
         Size = UDim2.new(1, 0, 0, 18),
@@ -1530,10 +1784,13 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         ZIndex = 110,
         Parent = Library.KeybindContainer
     }, true)
+    
     local Modes = Info.Modes or { "Always", "Toggle", "Hold" }
     local ModeButtons = {}
+    
     for _, Mode in ipairs(Modes) do
         local Button = {}
+        
         local Label = Library:CreateLabel({
             Active = false,
             Size = UDim2.new(1, 0, 0, 15),
@@ -1542,6 +1799,7 @@ function BaseAddons:AddKeyPicker(Idx, Info)
             ZIndex = 16,
             Parent = ModeInner
         })
+        
         function Button:Select()
             for _, B in pairs(ModeButtons) do
                 B:Deselect()
@@ -1554,6 +1812,7 @@ function BaseAddons:AddKeyPicker(Idx, Info)
             end
             ModeOuter.Visible = false
         end
+        
         function Button:Deselect()
             Label.TextColor3 = Library.FontColor
             local Reg = Library.RegistryMap[Label]
@@ -1561,16 +1820,20 @@ function BaseAddons:AddKeyPicker(Idx, Info)
                 Reg.Properties.TextColor3 = "FontColor"
             end
         end
+        
         Label.InputBegan:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                 Button:Select()
             end
         end)
+        
         if Mode == KeyPicker.Mode then
             Button:Select()
         end
+        
         ModeButtons[Mode] = Button
     end
+    
     function KeyPicker:GetState()
         if KeyPicker.Mode == "Always" then
             return true
@@ -1587,16 +1850,20 @@ function BaseAddons:AddKeyPicker(Idx, Info)
             return KeyPicker.Toggled
         end
     end
+    
     function KeyPicker:Update()
         if Info.NoUI then return end
+        
         local State = KeyPicker:GetState()
         ContainerLabel.Text = string.format("[%s] %s (%s)", KeyPicker.Value, Info.Text, KeyPicker.Mode)
         ContainerLabel.Visible = true
         ContainerLabel.TextColor3 = State and Library.AccentColor or Library.FontColor
+        
         local Reg = Library.RegistryMap[ContainerLabel]
         if Reg then
             Reg.Properties.TextColor3 = State and "AccentColor" or "FontColor"
         end
+        
         local YSize, XSize = 0, 0
         for _, L in ipairs(Library.KeybindContainer:GetChildren()) do
             if L:IsA("TextLabel") and L.Visible then
@@ -1604,8 +1871,10 @@ function BaseAddons:AddKeyPicker(Idx, Info)
                 XSize = math.max(XSize, L.TextBounds.X)
             end
         end
+        
         Library.KeybindFrame.Size = UDim2.new(0, math.max(XSize + 15, 210), 0, YSize + 25)
     end
+    
     function KeyPicker:SetValue(Data)
         local Key, Mode = Data[1], Data[2]
         DisplayLabel.Text = Key
@@ -1615,13 +1884,16 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         end
         KeyPicker:Update()
     end
+    
     function KeyPicker:OnClick(Callback)
         KeyPicker.Clicked = Callback
     end
+    
     function KeyPicker:OnChanged(Callback)
         KeyPicker.Changed = Callback
         Callback(KeyPicker.Value)
     end
+    
     function KeyPicker:DoClick()
         if self.Type == "Toggle" and KeyPicker.SyncToggleState then
             self:SetValue(not self.Value)
@@ -1631,19 +1903,26 @@ function BaseAddons:AddKeyPicker(Idx, Info)
             Library:SafeCallback(KeyPicker.Clicked, KeyPicker.Toggled)
         end
     end
+    
     if self.Addons then
         table.insert(self.Addons, KeyPicker)
     end
+    
+    -- Input Handling
     local Picking = false
+    
     PickOuter.InputBegan:Connect(function(Input)
         if Library:MouseIsOverOpenedFrame() then return end
+        
         if Input.UserInputType == Enum.UserInputType.MouseButton1 then
             Picking = true
             DisplayLabel.Text = "..."
+            
             task.delay(0.2, function()
                 local Event
                 Event = UserInputService.InputBegan:Connect(function(Input2)
                     local Key
+                    
                     if Input2.UserInputType == Enum.UserInputType.Keyboard then
                         Key = Input2.KeyCode.Name
                     elseif Input2.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -1651,13 +1930,16 @@ function BaseAddons:AddKeyPicker(Idx, Info)
                     elseif Input2.UserInputType == Enum.UserInputType.MouseButton2 then
                         Key = "MB2"
                     end
+                    
                     if Key then
                         Picking = false
                         DisplayLabel.Text = Key
                         KeyPicker.Value = Key
+                        
                         if KeyPicker.Changed then
                             Library:SafeCallback(KeyPicker.Changed, Input2.KeyCode or Input2.UserInputType)
                         end
+                        
                         Event:Disconnect()
                     end
                 end)
@@ -1666,10 +1948,13 @@ function BaseAddons:AddKeyPicker(Idx, Info)
             ModeOuter.Visible = not ModeOuter.Visible
         end
     end)
+    
     UserInputService.InputBegan:Connect(function(Input)
         if Picking then return end
+        
         if KeyPicker.Mode == "Toggle" then
             local Key = KeyPicker.Value
+            
             if Key == "MB1" or Key == "MB2" then
                 if (Key == "MB1" and Input.UserInputType == Enum.UserInputType.MouseButton1) or
                    (Key == "MB2" and Input.UserInputType == Enum.UserInputType.MouseButton2) then
@@ -1681,18 +1966,22 @@ function BaseAddons:AddKeyPicker(Idx, Info)
                 KeyPicker:DoClick()
             end
         end
+        
         KeyPicker:Update()
+        
         if Input.UserInputType == Enum.UserInputType.MouseButton1 and ModeOuter.Visible then
             if not Library:IsMouseOverFrame(ModeOuter) then
                 ModeOuter.Visible = false
             end
         end
     end)
+    
     UserInputService.InputEnded:Connect(function()
         if not Picking then
             KeyPicker:Update()
         end
     end)
+    
     KeyPicker:Update()
     Options[Idx] = KeyPicker
     return self
@@ -1701,10 +1990,12 @@ end
 --// Window Creation
 function Library:CreateWindow(Config)
     Config = type(Config) == "table" and Config or { Title = Config }
+    
     Config.Title = Config.Title or "Window"
     Config.AutoShow = Config.AutoShow or false
     Config.Center = Config.Center or false
     Config.TabPadding = Config.TabPadding or 0
+    
     if Config.Center then
         Config.AnchorPoint = Vector2.new(0.5, 0.5)
         Config.Position = UDim2.fromScale(0.5, 0.5)
@@ -1712,8 +2003,10 @@ function Library:CreateWindow(Config)
         Config.AnchorPoint = Config.AnchorPoint or Vector2.zero
         Config.Position = Config.Position or UDim2.fromOffset(175, 50)
     end
+    
     Config.Size = Config.Size or UDim2.fromOffset(550, 600)
     
+    -- Initialize ScreenGui
     if not Library.ScreenGui then
         Library.ScreenGui = Library:Create("ScreenGui", {
             ZIndexBehavior = Enum.ZIndexBehavior.Global
@@ -1721,6 +2014,7 @@ function Library:CreateWindow(Config)
         ProtectGui(Library.ScreenGui)
         Library.ScreenGui.Parent = CoreGui
         
+        -- Notification Area
         Library.NotificationArea = Library:Create("Frame", {
             BackgroundTransparency = 1,
             Position = UDim2.new(0, 10, 0, 40),
@@ -1728,6 +2022,7 @@ function Library:CreateWindow(Config)
             ZIndex = 100,
             Parent = Library.ScreenGui
         })
+        
         Library:Create("UIListLayout", {
             Padding = UDim.new(0, 4),
             FillDirection = Enum.FillDirection.Vertical,
@@ -1735,6 +2030,7 @@ function Library:CreateWindow(Config)
             Parent = Library.NotificationArea
         })
         
+        -- Keybind Frame
         Library.KeybindFrame = Library:Create("Frame", {
             AnchorPoint = Vector2.new(0, 0.5),
             BorderColor3 = Color3.new(0, 0, 0),
@@ -1744,6 +2040,7 @@ function Library:CreateWindow(Config)
             ZIndex = 100,
             Parent = Library.ScreenGui
         })
+        
         local KeybindInner = Library:Create("Frame", {
             BackgroundColor3 = Library.MainColor,
             BorderColor3 = Library.OutlineColor,
@@ -1752,6 +2049,7 @@ function Library:CreateWindow(Config)
             ZIndex = 101,
             Parent = Library.KeybindFrame
         })
+        
         Library:Create("Frame", {
             BackgroundColor3 = Library.AccentColor,
             BorderSizePixel = 0,
@@ -1759,6 +2057,7 @@ function Library:CreateWindow(Config)
             ZIndex = 102,
             Parent = KeybindInner
         })
+        
         Library:CreateLabel({
             Size = UDim2.new(1, 0, 0, 20),
             Position = UDim2.fromOffset(5, 2),
@@ -1767,6 +2066,7 @@ function Library:CreateWindow(Config)
             ZIndex = 104,
             Parent = KeybindInner
         })
+        
         Library.KeybindContainer = Library:Create("Frame", {
             BackgroundTransparency = 1,
             Size = UDim2.new(1, 0, 1, -20),
@@ -1774,21 +2074,26 @@ function Library:CreateWindow(Config)
             ZIndex = 1,
             Parent = KeybindInner
         })
+        
         Library:Create("UIListLayout", {
             FillDirection = Enum.FillDirection.Vertical,
             SortOrder = Enum.SortOrder.LayoutOrder,
             Parent = Library.KeybindContainer
         })
+        
         Library:Create("UIPadding", {
             PaddingLeft = UDim.new(0, 5),
             Parent = Library.KeybindContainer
         })
+        
         Library:AddToRegistry(KeybindInner, {
             BackgroundColor3 = "MainColor",
             BorderColor3 = "OutlineColor"
         }, true)
+        
         Library:MakeDraggable(Library.KeybindFrame)
         
+        -- Watermark
         Library.Watermark = Library:Create("Frame", {
             BorderColor3 = Color3.new(0, 0, 0),
             Position = UDim2.new(0, 100, 0, -25),
@@ -1797,6 +2102,7 @@ function Library:CreateWindow(Config)
             ZIndex = 200,
             Parent = Library.ScreenGui
         })
+        
         local WatermarkInner = Library:Create("Frame", {
             BackgroundColor3 = Library.MainColor,
             BorderColor3 = Library.AccentColor,
@@ -1805,6 +2111,7 @@ function Library:CreateWindow(Config)
             ZIndex = 201,
             Parent = Library.Watermark
         })
+        
         local WatermarkGradient = Library:Create("Frame", {
             BackgroundColor3 = Color3.new(1, 1, 1),
             BorderSizePixel = 0,
@@ -1813,6 +2120,7 @@ function Library:CreateWindow(Config)
             ZIndex = 202,
             Parent = WatermarkInner
         })
+        
         Library:Create("UIGradient", {
             Color = ColorSequence.new({
                 ColorSequenceKeypoint.new(0, Library:GetDarkerColor(Library.MainColor)),
@@ -1821,6 +2129,7 @@ function Library:CreateWindow(Config)
             Rotation = -90,
             Parent = WatermarkGradient
         })
+        
         Library.WatermarkText = Library:CreateLabel({
             Position = UDim2.fromOffset(6, 0),
             Size = UDim2.new(1, -10, 1, 0),
@@ -1828,10 +2137,12 @@ function Library:CreateWindow(Config)
             ZIndex = 203,
             Parent = WatermarkGradient
         })
+        
         Library:AddToRegistry(WatermarkInner, { BorderColor3 = "AccentColor" })
         Library:MakeDraggable(Library.Watermark)
     end
     
+    -- Create Window
     local Window = {
         Tabs = {},
         ActiveTab = nil
@@ -1847,6 +2158,7 @@ function Library:CreateWindow(Config)
         ZIndex = 1,
         Parent = Library.ScreenGui
     })
+    
     Library:MakeDraggable(Outer, 25)
     
     local Inner = Library:Create("Frame", {
@@ -1858,6 +2170,7 @@ function Library:CreateWindow(Config)
         ZIndex = 1,
         Parent = Outer
     })
+    
     Library:AddToRegistry(Inner, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "AccentColor"
@@ -1872,6 +2185,7 @@ function Library:CreateWindow(Config)
         Parent = Inner
     })
     
+    -- Main Section
     local MainOuter = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Library.OutlineColor,
@@ -1880,6 +2194,7 @@ function Library:CreateWindow(Config)
         ZIndex = 1,
         Parent = Inner
     })
+    
     local MainInner = Library:Create("Frame", {
         BackgroundColor3 = Library.BackgroundColor,
         BorderColor3 = Color3.new(0, 0, 0),
@@ -1888,12 +2203,14 @@ function Library:CreateWindow(Config)
         ZIndex = 1,
         Parent = MainOuter
     })
+    
     Library:AddToRegistry(MainOuter, {
         BackgroundColor3 = "BackgroundColor",
         BorderColor3 = "OutlineColor"
     })
     Library:AddToRegistry(MainInner, { BackgroundColor3 = "BackgroundColor" })
     
+    -- Tab Area
     local TabArea = Library:Create("Frame", {
         BackgroundTransparency = 1,
         Position = UDim2.new(0, 8, 0, 8),
@@ -1901,6 +2218,7 @@ function Library:CreateWindow(Config)
         ZIndex = 1,
         Parent = MainInner
     })
+    
     local TabLayout = Library:Create("UIListLayout", {
         Padding = UDim.new(0, Config.TabPadding),
         FillDirection = Enum.FillDirection.Horizontal,
@@ -1908,6 +2226,7 @@ function Library:CreateWindow(Config)
         Parent = TabArea
     })
     
+    -- Tab Container
     local TabContainer = Library:Create("Frame", {
         BackgroundColor3 = Library.MainColor,
         BorderColor3 = Library.OutlineColor,
@@ -1916,11 +2235,13 @@ function Library:CreateWindow(Config)
         ZIndex = 2,
         Parent = MainInner
     })
+    
     Library:AddToRegistry(TabContainer, {
         BackgroundColor3 = "MainColor",
         BorderColor3 = "OutlineColor"
     })
     
+    -- Window Functions
     function Window:SetTitle(Title)
         WindowLabel.Text = Title
     end
@@ -1930,7 +2251,9 @@ function Library:CreateWindow(Config)
             Groupboxes = {},
             Tabboxes = {}
         }
+        
         local TabButtonWidth = Library:GetTextBounds(Name, Library.Font, 16)
+        
         local TabButton = Library:Create("Frame", {
             BackgroundColor3 = Library.BackgroundColor,
             BorderColor3 = Library.OutlineColor,
@@ -1938,16 +2261,19 @@ function Library:CreateWindow(Config)
             ZIndex = 1,
             Parent = TabArea
         })
+        
         Library:AddToRegistry(TabButton, {
             BackgroundColor3 = "BackgroundColor",
             BorderColor3 = "OutlineColor"
         })
+        
         local TabButtonLabel = Library:CreateLabel({
             Size = UDim2.new(1, 0, 1, -1),
             Text = Name,
             ZIndex = 1,
             Parent = TabButton
         })
+        
         local Blocker = Library:Create("Frame", {
             BackgroundColor3 = Library.MainColor,
             BorderSizePixel = 0,
@@ -1957,6 +2283,7 @@ function Library:CreateWindow(Config)
             ZIndex = 3,
             Parent = TabButton
         })
+        
         Library:AddToRegistry(Blocker, { BackgroundColor3 = "MainColor" })
         
         local TabFrame = Library:Create("Frame", {
@@ -1968,6 +2295,7 @@ function Library:CreateWindow(Config)
             Parent = TabContainer
         })
         
+        -- Sides
         local LeftSide = Library:Create("ScrollingFrame", {
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
@@ -1978,6 +2306,7 @@ function Library:CreateWindow(Config)
             ZIndex = 2,
             Parent = TabFrame
         })
+        
         local RightSide = Library:Create("ScrollingFrame", {
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
@@ -1988,6 +2317,7 @@ function Library:CreateWindow(Config)
             ZIndex = 2,
             Parent = TabFrame
         })
+        
         for _, Side in ipairs({ LeftSide, RightSide }) do
             Library:Create("UIListLayout", {
                 Padding = UDim.new(0, 8),
@@ -1996,6 +2326,7 @@ function Library:CreateWindow(Config)
                 HorizontalAlignment = Enum.HorizontalAlignment.Center,
                 Parent = Side
             })
+            
             Side:WaitForChild("UIListLayout"):GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
                 Side.CanvasSize = UDim2.fromOffset(0, Side.UIListLayout.AbsoluteContentSize.Y)
             end)
@@ -2005,12 +2336,14 @@ function Library:CreateWindow(Config)
             for _, T in pairs(Window.Tabs) do
                 T:Hide()
             end
+            
             Blocker.BackgroundTransparency = 0
             TabButton.BackgroundColor3 = Library.MainColor
             Library.RegistryMap[TabButton].Properties.BackgroundColor3 = "MainColor"
             TabFrame.Visible = true
             Window.ActiveTab = Tab
         end
+        
         function Tab:Hide()
             Blocker.BackgroundTransparency = 1
             TabButton.BackgroundColor3 = Library.BackgroundColor
@@ -2020,6 +2353,7 @@ function Library:CreateWindow(Config)
         
         function Tab:AddGroupbox(Info)
             local Groupbox = {}
+            
             local BoxOuter = Library:Create("Frame", {
                 BackgroundColor3 = Library.BackgroundColor,
                 BorderColor3 = Library.OutlineColor,
@@ -2028,6 +2362,7 @@ function Library:CreateWindow(Config)
                 ZIndex = 2,
                 Parent = Info.Side == 1 and LeftSide or RightSide
             })
+            
             local BoxInner = Library:Create("Frame", {
                 BackgroundColor3 = Library.BackgroundColor,
                 BorderColor3 = Color3.new(0, 0, 0),
@@ -2036,6 +2371,7 @@ function Library:CreateWindow(Config)
                 ZIndex = 4,
                 Parent = BoxOuter
             })
+            
             local Highlight = Library:Create("Frame", {
                 BackgroundColor3 = Library.AccentColor,
                 BorderSizePixel = 0,
@@ -2043,6 +2379,7 @@ function Library:CreateWindow(Config)
                 ZIndex = 5,
                 Parent = BoxInner
             })
+            
             local GroupboxLabel = Library:CreateLabel({
                 Size = UDim2.new(1, 0, 0, 18),
                 Position = UDim2.fromOffset(6, 2),
@@ -2052,6 +2389,7 @@ function Library:CreateWindow(Config)
                 ZIndex = 5,
                 Parent = BoxInner
             })
+            
             local Container = Library:Create("Frame", {
                 BackgroundTransparency = 1,
                 Position = UDim2.new(0, 6, 0, 20),
@@ -2059,17 +2397,20 @@ function Library:CreateWindow(Config)
                 ZIndex = 1,
                 Parent = BoxInner
             })
+            
             Library:Create("UIListLayout", {
                 FillDirection = Enum.FillDirection.Vertical,
                 SortOrder = Enum.SortOrder.LayoutOrder,
                 Parent = Container
             })
+            
             Library:AddToRegistry(BoxOuter, {
                 BackgroundColor3 = "BackgroundColor",
                 BorderColor3 = "OutlineColor"
             })
             Library:AddToRegistry(BoxInner, { BackgroundColor3 = "BackgroundColor" })
             Library:AddToRegistry(Highlight, { BackgroundColor3 = "AccentColor" })
+            
             function Groupbox:Resize()
                 local Size = 0
                 for _, Element in ipairs(Container:GetChildren()) do
@@ -2079,16 +2420,21 @@ function Library:CreateWindow(Config)
                 end
                 BoxOuter.Size = UDim2.new(1, 0, 0, 24 + Size + 4)
             end
+            
             Groupbox.Container = Container
             setmetatable(Groupbox, { __index = BaseGroupbox })
+            
             Groupbox:AddBlank(3)
             Groupbox:Resize()
+            
             Tab.Groupboxes[Info.Name] = Groupbox
             return Groupbox
         end
+        
         function Tab:AddLeftGroupbox(Name)
             return Tab:AddGroupbox({ Side = 1, Name = Name })
         end
+        
         function Tab:AddRightGroupbox(Name)
             return Tab:AddGroupbox({ Side = 2, Name = Name })
         end
@@ -2098,24 +2444,33 @@ function Library:CreateWindow(Config)
                 Tab:Show()
             end
         end)
+        
         if not Window.ActiveTab then
             Tab:Show()
         end
+        
         Window.Tabs[Name] = Tab
         return Tab
     end
     
+    -- Toggle Functionality
     local Toggled = false
     local Fading = false
+    
     function Library:Toggle()
         if Fading then return end
+        
         Fading = true
         Toggled = not Toggled
+        
         if Toggled then
             Outer.Visible = true
         end
+        
+        -- Fade animation
         for _, Desc in ipairs(Outer:GetDescendants()) do
             local Props = {}
+            
             if Desc:IsA("ImageLabel") then
                 Props = { "ImageTransparency", "BackgroundTransparency" }
             elseif Desc:IsA("TextLabel") or Desc:IsA("TextBox") then
@@ -2125,6 +2480,7 @@ function Library:CreateWindow(Config)
             elseif Desc:IsA("UIStroke") then
                 Props = { "Transparency" }
             end
+            
             for _, Prop in ipairs(Props) do
                 local Current = Desc[Prop]
                 if Current < 1 then
@@ -2134,6 +2490,7 @@ function Library:CreateWindow(Config)
                 end
             end
         end
+        
         task.delay(0.2, function()
             Outer.Visible = Toggled
             Fading = false
@@ -2142,9 +2499,13 @@ function Library:CreateWindow(Config)
     
     Library:GiveSignal(UserInputService.InputBegan:Connect(function(Input, Processed)
         if Processed then return end
-        if Input.KeyCode == Enum.KeyCode.RightControl or Input.KeyCode == Enum.KeyCode.RightShift then
+        
+        if Input.KeyCode == Enum.KeyCode.RightControl or 
+           Input.KeyCode == Enum.KeyCode.RightShift then
             Library:Toggle()
-        elseif Library.ToggleKeybind and Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode.Name == Library.ToggleKeybind.Value then
+        elseif Library.ToggleKeybind and 
+               Input.UserInputType == Enum.UserInputType.Keyboard and
+               Input.KeyCode.Name == Library.ToggleKeybind.Value then
             Library:Toggle()
         end
     end))
@@ -2152,6 +2513,7 @@ function Library:CreateWindow(Config)
     if Config.AutoShow then
         Library:Toggle()
     end
+    
     Window.Holder = Outer
     return Window
 end
