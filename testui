@@ -1,5 +1,4 @@
---!strict
--- Ultimate UI Library v2.0
+-- Ultimate UI Library v2.1 (Fixed)
 -- Combines Linoria's functionality with Skeet's aesthetics
 -- Features: Draggable, Themeable, Modular, Performant
 
@@ -15,7 +14,7 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 --// Protect GUI
-local ProtectGui = protectgui or (syn and syn.protect_gui) or (function() end)
+local ProtectGui = getgenv().protectgui or (syn and syn.protect_gui) or (function() end)
 
 --// Library Container
 local Library = {
@@ -26,27 +25,28 @@ local Library = {
     Signals = {},
     OpenedFrames = {},
     DependencyBoxes = {},
-    
+
     -- Theme Colors
     FontColor = Color3.fromRGB(255, 255, 255),
     MainColor = Color3.fromRGB(28, 28, 28),
     BackgroundColor = Color3.fromRGB(20, 20, 20),
     AccentColor = Color3.fromRGB(0, 170, 255),
+    AccentColorDark = Color3.fromRGB(0, 120, 180),
     OutlineColor = Color3.fromRGB(50, 50, 50),
     RiskColor = Color3.fromRGB(255, 50, 50),
     Black = Color3.new(0, 0, 0),
-    
+
     -- Typography
     Font = Enum.Font.Code,
     TextSize = 14,
-    
+
     -- State
     CurrentRainbowHue = 0,
     CurrentRainbowColor = Color3.fromHSV(0, 0.8, 1),
     ToggleKeybind = nil,
     NotifyOnError = true,
     ColorClipboard = nil,
-    
+
     -- References
     ScreenGui = nil,
     NotificationArea = nil,
@@ -64,13 +64,13 @@ getgenv().Options = Options
 
 --// Utility Functions
 function Library:Create(Class, Properties)
-    local Instance = type(Class) == "string" and Instance.new(Class) or Class
+    local InstanceObj = type(Class) == "string" and Instance.new(Class) or Class
     
     for Property, Value in pairs(Properties) do
-        Instance[Property] = Value
+        InstanceObj[Property] = Value
     end
     
-    return Instance
+    return InstanceObj
 end
 
 function Library:ApplyTextStroke(Inst)
@@ -195,7 +195,7 @@ function Library:Unload()
     getgenv().Options = nil
 end
 
---// Dragging System (Enhanced from Skeet)
+--// Dragging System
 function Library:MakeDraggable(Instance, Cutoff, OnDrag)
     Instance.Active = true
     local Dragging = false
@@ -241,19 +241,22 @@ end
 --// Input Detection
 function Library:MouseIsOverOpenedFrame()
     for Frame, _ in pairs(Library.OpenedFrames) do
-        local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize
-        if Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X
-           and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y then
-            return true
+        if Frame and Frame.AbsolutePosition then
+            local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize
+            if Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X
+                and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y then
+                return true
+            end
         end
     end
     return false
 end
 
 function Library:IsMouseOverFrame(Frame)
+    if not Frame or not Frame.AbsolutePosition then return false end
     local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize
     return Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X
-       and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y
+        and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y
 end
 
 --// Tooltip System
@@ -286,12 +289,34 @@ function Library:AddTooltip(InfoStr, HoverInstance)
     HoverInstance.MouseEnter:Connect(function()
         if Library:MouseIsOverOpenedFrame() then return end
         IsHovering = true
-        Tooltip.Position = UDim2.fromOffset(Mouse.X + 15, Mouse.Y + 12)
+        
+        -- Position with screen boundary check
+        local TargetX = Mouse.X + 15
+        local TargetY = Mouse.Y + 12
+        
+        if TargetX + Tooltip.AbsoluteSize.X > Camera.ViewportSize.X then
+            TargetX = Mouse.X - Tooltip.AbsoluteSize.X - 5
+        end
+        if TargetY + Tooltip.AbsoluteSize.Y > Camera.ViewportSize.Y then
+            TargetY = Mouse.Y - Tooltip.AbsoluteSize.Y - 5
+        end
+        
+        Tooltip.Position = UDim2.fromOffset(TargetX, TargetY)
         Tooltip.Visible = true
         
         while IsHovering do
             RunService.Heartbeat:Wait()
-            Tooltip.Position = UDim2.fromOffset(Mouse.X + 15, Mouse.Y + 12)
+            TargetX = Mouse.X + 15
+            TargetY = Mouse.Y + 12
+            
+            if TargetX + Tooltip.AbsoluteSize.X > Camera.ViewportSize.X then
+                TargetX = Mouse.X - Tooltip.AbsoluteSize.X - 5
+            end
+            if TargetY + Tooltip.AbsoluteSize.Y > Camera.ViewportSize.Y then
+                TargetY = Mouse.Y - Tooltip.AbsoluteSize.Y - 5
+            end
+            
+            Tooltip.Position = UDim2.fromOffset(TargetX, TargetY)
         end
     end)
     
@@ -542,8 +567,8 @@ function BaseGroupbox:AddButton(Info)
     end
     
     local function ValidateClick(Input)
-        return Input.UserInputType == Enum.UserInputType.MouseButton1 
-           and not Library:MouseIsOverOpenedFrame()
+        return Input.UserInputType == Enum.UserInputType.MouseButton1
+            and not Library:MouseIsOverOpenedFrame()
     end
     
     Outer.InputBegan:Connect(function(Input)
@@ -695,8 +720,8 @@ function BaseGroupbox:AddToggle(Idx, Info)
     end
     
     ToggleRegion.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 
-           and not Library:MouseIsOverOpenedFrame() then
+        if Input.UserInputType == Enum.UserInputType.MouseButton1
+            and not Library:MouseIsOverOpenedFrame() then
             Toggle:SetValue(not Toggle.Value)
         end
     end)
@@ -708,8 +733,8 @@ function BaseGroupbox:AddToggle(Idx, Info)
     Toggle.TextLabel = Label
     Toggle.Container = self.Container
     
-    setmetatable(Toggle, { __index = function(t, k) 
-        return rawget(t, k) or BaseAddons[k] 
+    setmetatable(Toggle, { __index = function(t, k)
+        return rawget(t, k) or BaseAddons[k]
     end })
     
     Toggles[Idx] = Toggle
@@ -842,8 +867,8 @@ function BaseGroupbox:AddSlider(Idx, Info)
     end
     
     Inner.InputBegan:Connect(function(Input)
-        if Input.UserInputType ~= Enum.UserInputType.MouseButton1 
-           or Library:MouseIsOverOpenedFrame() then return end
+        if Input.UserInputType ~= Enum.UserInputType.MouseButton1
+            or Library:MouseIsOverOpenedFrame() then return end
         
         local mPos = Mouse.X
         local gPos = Fill.Size.X.Offset
@@ -1002,6 +1027,7 @@ function BaseGroupbox:AddDropdown(Idx, Info)
     Library:AddToRegistry(Scrolling, { ScrollBarImageColor3 = "AccentColor" })
     
     local function RecalculateList()
+        if not Outer or not Outer.AbsolutePosition then return end
         ListOuter.Position = UDim2.fromOffset(Outer.AbsolutePosition.X, Outer.AbsolutePosition.Y + Outer.AbsoluteSize.Y + 1)
         ListOuter.Size = UDim2.fromOffset(Outer.AbsoluteSize.X, math.min(#Dropdown.Values * 22 + 2, 180))
     end
@@ -1128,8 +1154,8 @@ function BaseGroupbox:AddDropdown(Idx, Info)
     end
     
     Outer.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1 
-           and not Library:MouseIsOverOpenedFrame() then
+        if Input.UserInputType == Enum.UserInputType.MouseButton1
+            and not Library:MouseIsOverOpenedFrame() then
             if ListOuter.Visible then
                 Dropdown:Close()
             else
@@ -1295,7 +1321,7 @@ function BaseGroupbox:AddInput(Idx, Info)
         
         if CurrentPos < 2 then
             Box.Position = UDim2.fromOffset(2 - Width, 0)
-        elseif CurrentPos > Container.AbsoluteSize.X - 4 then
+        elseif Container.AbsoluteSize.X > 0 and CurrentPos > Container.AbsoluteSize.X - 4 then
             Box.Position = UDim2.fromOffset(Container.AbsoluteSize.X - Width - 4, 0)
         end
     end
@@ -1336,9 +1362,11 @@ function BaseGroupbox:AddDependencyBox()
         Parent = Frame
     })
     
+    local ParentGroupbox = self
+    
     function Depbox:Resize()
         Holder.Size = UDim2.new(1, 0, 0, Layout.AbsoluteContentSize.Y)
-        self:Resize()
+        ParentGroupbox:Resize()
     end
     
     Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -1576,12 +1604,13 @@ function BaseAddons:AddColorPicker(Idx, Info)
         Cursor.Position = UDim2.new(ColorPicker.Sat, 0, 1 - ColorPicker.Vib, 0)
         HueCursor.Position = UDim2.new(0, 0, ColorPicker.Hue, 0)
         
-        HexBox.Text = "#" .. ColorPicker.Value:ToHex()
-        RgbBox.Text = string.format("%d, %d, %d",
-            math.floor(ColorPicker.Value.R * 255),
-            math.floor(ColorPicker.Value.G * 255),
-            math.floor(ColorPicker.Value.B * 255)
-        )
+        -- Safe hex conversion
+        local R = math.floor(ColorPicker.Value.R * 255)
+        local G = math.floor(ColorPicker.Value.G * 255)
+        local B = math.floor(ColorPicker.Value.B * 255)
+        HexBox.Text = string.format("#%02X%02X%02X", R, G, B)
+        
+        RgbBox.Text = string.format("%d, %d, %d", R, G, B)
         
         Library:SafeCallback(ColorPicker.Callback, ColorPicker.Value)
         if ColorPicker.Changed then
@@ -1666,10 +1695,15 @@ function BaseAddons:AddColorPicker(Idx, Info)
     
     HexBox.FocusLost:Connect(function(Enter)
         if Enter then
-            local Success, Result = pcall(Color3.fromHex, HexBox.Text)
-            if Success then
-                ColorPicker:SetHSVFromRGB(Result)
-                ColorPicker:Display()
+            local Hex = HexBox.Text:gsub("#", "")
+            if #Hex == 6 then
+                local R = tonumber(Hex:sub(1, 2), 16)
+                local G = tonumber(Hex:sub(3, 4), 16)
+                local B = tonumber(Hex:sub(5, 6), 16)
+                if R and G and B then
+                    ColorPicker:SetHSVFromRGB(Color3.fromRGB(R, G, B))
+                    ColorPicker:Display()
+                end
             end
         end
     end)
@@ -1698,6 +1732,8 @@ function BaseAddons:AddColorPicker(Idx, Info)
 end
 
 function BaseAddons:AddKeyPicker(Idx, Info)
+    local Toggle = self  -- Reference to parent toggle
+    
     local KeyPicker = {
         Value = Info.Default,
         Toggled = false,
@@ -1717,7 +1753,7 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         BorderColor3 = Color3.new(0, 0, 0),
         Size = UDim2.new(0, 28, 0, 16),
         ZIndex = 6,
-        Parent = self.TextLabel
+        Parent = Toggle.TextLabel
     })
     
     local PickInner = Library:Create("Frame", {
@@ -1744,15 +1780,15 @@ function BaseAddons:AddKeyPicker(Idx, Info)
     -- Mode Selector
     local ModeOuter = Library:Create("Frame", {
         BorderColor3 = Color3.new(0, 0, 0),
-        Position = UDim2.fromOffset(self.TextLabel.AbsolutePosition.X + self.TextLabel.AbsoluteSize.X + 4, self.TextLabel.AbsolutePosition.Y),
+        Position = UDim2.fromOffset(Toggle.TextLabel.AbsolutePosition.X + Toggle.TextLabel.AbsoluteSize.X + 4, Toggle.TextLabel.AbsolutePosition.Y),
         Size = UDim2.fromOffset(60, 47),
         Visible = false,
         ZIndex = 14,
         Parent = Library.ScreenGui
     })
     
-    self.TextLabel:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
-        ModeOuter.Position = UDim2.fromOffset(self.TextLabel.AbsolutePosition.X + self.TextLabel.AbsoluteSize.X + 4, self.TextLabel.AbsolutePosition.Y)
+    Toggle.TextLabel:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
+        ModeOuter.Position = UDim2.fromOffset(Toggle.TextLabel.AbsolutePosition.X + Toggle.TextLabel.AbsoluteSize.X + 4, Toggle.TextLabel.AbsolutePosition.Y)
     end)
     
     local ModeInner = Library:Create("Frame", {
@@ -1895,8 +1931,8 @@ function BaseAddons:AddKeyPicker(Idx, Info)
     end
     
     function KeyPicker:DoClick()
-        if self.Type == "Toggle" and KeyPicker.SyncToggleState then
-            self:SetValue(not self.Value)
+        if Toggle.Type == "Toggle" and KeyPicker.SyncToggleState then
+            Toggle:SetValue(not Toggle.Value)
         end
         Library:SafeCallback(KeyPicker.Callback, KeyPicker.Toggled)
         if KeyPicker.Clicked then
@@ -1904,8 +1940,8 @@ function BaseAddons:AddKeyPicker(Idx, Info)
         end
     end
     
-    if self.Addons then
-        table.insert(self.Addons, KeyPicker)
+    if Toggle.Addons then
+        table.insert(Toggle.Addons, KeyPicker)
     end
     
     -- Input Handling
@@ -2339,7 +2375,10 @@ function Library:CreateWindow(Config)
             
             Blocker.BackgroundTransparency = 0
             TabButton.BackgroundColor3 = Library.MainColor
-            Library.RegistryMap[TabButton].Properties.BackgroundColor3 = "MainColor"
+            local Reg = Library.RegistryMap[TabButton]
+            if Reg then
+                Reg.Properties.BackgroundColor3 = "MainColor"
+            end
             TabFrame.Visible = true
             Window.ActiveTab = Tab
         end
@@ -2347,7 +2386,10 @@ function Library:CreateWindow(Config)
         function Tab:Hide()
             Blocker.BackgroundTransparency = 1
             TabButton.BackgroundColor3 = Library.BackgroundColor
-            Library.RegistryMap[TabButton].Properties.BackgroundColor3 = "BackgroundColor"
+            local Reg = Library.RegistryMap[TabButton]
+            if Reg then
+                Reg.Properties.BackgroundColor3 = "BackgroundColor"
+            end
             TabFrame.Visible = false
         end
         
@@ -2483,16 +2525,22 @@ function Library:CreateWindow(Config)
             
             for _, Prop in ipairs(Props) do
                 local Current = Desc[Prop]
-                if Current < 1 then
-                    TweenService:Create(Desc, TweenInfo.new(0.2), {
-                        [Prop] = Toggled and Current or 1
-                    }):Play()
+                if Current ~= nil then
+                    local Target = Toggled and 0 or 1
+                    -- Only tween if actually changing
+                    if Current ~= Target then
+                        TweenService:Create(Desc, TweenInfo.new(0.2), {
+                            [Prop] = Target
+                        }):Play()
+                    end
                 end
             end
         end
         
         task.delay(0.2, function()
-            Outer.Visible = Toggled
+            if not Toggled then
+                Outer.Visible = false
+            end
             Fading = false
         end)
     end
@@ -2500,10 +2548,10 @@ function Library:CreateWindow(Config)
     Library:GiveSignal(UserInputService.InputBegan:Connect(function(Input, Processed)
         if Processed then return end
         
-        if Input.KeyCode == Enum.KeyCode.RightControl or 
+        if Input.KeyCode == Enum.KeyCode.RightControl or
            Input.KeyCode == Enum.KeyCode.RightShift then
             Library:Toggle()
-        elseif Library.ToggleKeybind and 
+        elseif Library.ToggleKeybind and
                Input.UserInputType == Enum.UserInputType.Keyboard and
                Input.KeyCode.Name == Library.ToggleKeybind.Value then
             Library:Toggle()
